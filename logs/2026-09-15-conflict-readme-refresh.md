@@ -19,4 +19,4 @@
 **Що виявив конфлікт у вимогах:** задум не каже, чи допускається ручне оновлення цін на
 додачу до автоматичного, і не уточнює час/періодичність. Зафіксовано в spec/open-questions.md.
 
-**Коміт злиття:** <hash> — docs: merge human/readme-refresh, resolve data refresh conflict
+**Коміт злиття:** c49dd51 — docs: merge human/readme-refresh, resolve data refresh conflict
