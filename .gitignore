@@ -1,0 +1,7 @@
+﻿.claude/
+.env
+*.db
+*.docx
+*.pdf
+__pycache__/
+.venv/
