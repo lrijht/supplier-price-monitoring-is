@@ -18,3 +18,7 @@ Spec-driven development. The file in /spec is the single source of truth.
 - If a task conflicts with /spec — stop and report, do not resolve yourself.
 - Commit format: `prefix: imperative summary` (<= 72 chars), prefixes spec:/test:/feat:/fix:/docs:/log:/gate:/chore:,
   trailer `Author-role: agent` + `Agent: claude-code`.
+
+- Lab 2 (reverse engineering): the SRS describes the suppliers module of an existing private system.
+  Only behaviour goes into this repository — screens, user actions, entities, schedule, failure handling.
+  Never add its source code, file paths, real prices, credentials, hostnames or client data.
