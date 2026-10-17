@@ -48,6 +48,67 @@
 | 4. Порівняння, деактивація і ролі | T-38…T-44 | тести порівняння і деактивації; gate T-40; фічі; склад екранів і права ролей |
 | 5. Перевірка і приймання | T-45…T-51 | швидкодія, документація, верифікація, матриця, валідація, приймання |
 
+## Issues у GitHub
+
+Тікети перенесено в GitHub Issues репозиторію `lrijht/supplier-price-monitoring-is` 2026-10-17
+(T-03). Номер issue збігається з номером тікета. Тип і «Хто» позначено мітками `type:*` і `role:*`,
+етап — milestone з датою завершення етапу з `docs/plan.md`, «Блокується» — зв'язками «blocked by».
+T-01 і T-02 закрито як виконані.
+
+| Тікет | Issue | Назва |
+|---|---|---|
+| T-01 | [#1](https://github.com/lrijht/supplier-price-monitoring-is/issues/1) | Адендум A-02 за рішеннями щодо прогалин |
+| T-02 | [#2](https://github.com/lrijht/supplier-price-monitoring-is/issues/2) | Прийняття адендума A-02 |
+| T-03 | [#3](https://github.com/lrijht/supplier-price-monitoring-is/issues/3) | Номери тікетів у матриці трасування |
+| T-04 | [#4](https://github.com/lrijht/supplier-price-monitoring-is/issues/4) | PLAN-GATE: прийняття плану тікетів |
+| T-05 | [#5](https://github.com/lrijht/supplier-price-monitoring-is/issues/5) | Тести каркаса застосунку |
+| T-06 | [#6](https://github.com/lrijht/supplier-price-monitoring-is/issues/6) | Каркас застосунку і конфігурація |
+| T-07 | [#7](https://github.com/lrijht/supplier-price-monitoring-is/issues/7) | Тести імітатора постачальників |
+| T-08 | [#8](https://github.com/lrijht/supplier-price-monitoring-is/issues/8) | Імітатор постачальників |
+| T-09 | [#9](https://github.com/lrijht/supplier-price-monitoring-is/issues/9) | Тести розбирачів |
+| T-10 | [#10](https://github.com/lrijht/supplier-price-monitoring-is/issues/10) | Розбирачі сторінок постачальників імітатора |
+| T-11 | [#11](https://github.com/lrijht/supplier-price-monitoring-is/issues/11) | Тести облікових записів, входу і сесії |
+| T-12 | [#12](https://github.com/lrijht/supplier-price-monitoring-is/issues/12) | Облікові записи, вхід і вихід |
+| T-13 | [#13](https://github.com/lrijht/supplier-price-monitoring-is/issues/13) | Тести довідників постачальників і матеріалів |
+| T-14 | [#14](https://github.com/lrijht/supplier-price-monitoring-is/issues/14) | Довідники постачальників і матеріалів |
+| T-15 | [#15](https://github.com/lrijht/supplier-price-monitoring-is/issues/15) | Тести непов'язаних позицій і прив'язок |
+| T-16 | [#16](https://github.com/lrijht/supplier-price-monitoring-is/issues/16) | Непов'язані позиції і прив'язки |
+| T-17 | [#17](https://github.com/lrijht/supplier-price-monitoring-is/issues/17) | Тести налаштувань |
+| T-18 | [#18](https://github.com/lrijht/supplier-price-monitoring-is/issues/18) | Екран налаштувань |
+| T-19 | [#19](https://github.com/lrijht/supplier-price-monitoring-is/issues/19) | Тести запуску: отримання, розбір, ціни дня |
+| T-20 | [#20](https://github.com/lrijht/supplier-price-monitoring-is/issues/20) | Тести статусів, бази обсягу і журналу оновлень |
+| T-21 | [#21](https://github.com/lrijht/supplier-price-monitoring-is/issues/21) | Тести планувальника, ручного запуску і доганяння |
+| T-22 | [#22](https://github.com/lrijht/supplier-price-monitoring-is/issues/22) | Gate: тест-кейси цін дня і розкладу |
+| T-23 | [#23](https://github.com/lrijht/supplier-price-monitoring-is/issues/23) | Запуск оновлення: отримання, розбір, запис цін дня |
+| T-24 | [#24](https://github.com/lrijht/supplier-price-monitoring-is/issues/24) | Статуси запуску, база обсягу, журнал оновлень, стан оновлення постачальників |
+| T-25 | [#25](https://github.com/lrijht/supplier-price-monitoring-is/issues/25) | Планувальник, ручний запуск, доганяння і перерваний запуск |
+| T-26 | [#26](https://github.com/lrijht/supplier-price-monitoring-is/issues/26) | Тести подій «зміна ціни» і бази стрічки |
+| T-27 | [#27](https://github.com/lrijht/supplier-price-monitoring-is/issues/27) | Тести подій «з'явився» і «зник» |
+| T-28 | [#28](https://github.com/lrijht/supplier-price-monitoring-is/issues/28) | Gate: тест-кейси стрічки змін |
+| T-29 | [#29](https://github.com/lrijht/supplier-price-monitoring-is/issues/29) | Події «зміна ціни» і база стрічки |
+| T-30 | [#30](https://github.com/lrijht/supplier-price-monitoring-is/issues/30) | Події «з'явився» і «зник» |
+| T-31 | [#31](https://github.com/lrijht/supplier-price-monitoring-is/issues/31) | Gate: ядро оновлення і стрічки |
+| T-32 | [#32](https://github.com/lrijht/supplier-price-monitoring-is/issues/32) | Тести екрана історії матеріалу |
+| T-33 | [#33](https://github.com/lrijht/supplier-price-monitoring-is/issues/33) | Екран історії матеріалу |
+| T-34 | [#34](https://github.com/lrijht/supplier-price-monitoring-is/issues/34) | Тести екрана стрічки змін |
+| T-35 | [#35](https://github.com/lrijht/supplier-price-monitoring-is/issues/35) | Екран стрічки змін |
+| T-36 | [#36](https://github.com/lrijht/supplier-price-monitoring-is/issues/36) | Тести розбіжності одиниць і списку «позиції, що потребують уваги» |
+| T-37 | [#37](https://github.com/lrijht/supplier-price-monitoring-is/issues/37) | Позиції, що потребують уваги, і незмінність одиниці матеріалу |
+| T-38 | [#38](https://github.com/lrijht/supplier-price-monitoring-is/issues/38) | Тести порівняння цін |
+| T-39 | [#39](https://github.com/lrijht/supplier-price-monitoring-is/issues/39) | Тести деактивації і повторної активації |
+| T-40 | [#40](https://github.com/lrijht/supplier-price-monitoring-is/issues/40) | Gate: тест-кейси порівняння і деактивації |
+| T-41 | [#41](https://github.com/lrijht/supplier-price-monitoring-is/issues/41) | Загальний список порівняння і порівняння матеріалу |
+| T-42 | [#42](https://github.com/lrijht/supplier-price-monitoring-is/issues/42) | Деактивація і повторна активація постачальника й матеріалу |
+| T-43 | [#43](https://github.com/lrijht/supplier-price-monitoring-is/issues/43) | Тести складу екранів і прав ролей |
+| T-44 | [#44](https://github.com/lrijht/supplier-price-monitoring-is/issues/44) | Склад екранів, навігація і права ролей |
+| T-45 | [#45](https://github.com/lrijht/supplier-price-monitoring-is/issues/45) | Верифікація продуктивності |
+| T-46 | [#46](https://github.com/lrijht/supplier-price-monitoring-is/issues/46) | Інструкція із запуску і налаштування |
+| T-47 | [#47](https://github.com/lrijht/supplier-price-monitoring-is/issues/47) | Автоматична верифікація за критеріями прийняття |
+| T-48 | [#48](https://github.com/lrijht/supplier-price-monitoring-is/issues/48) | Ручна перевірка в Chrome і Firefox |
+| T-49 | [#49](https://github.com/lrijht/supplier-price-monitoring-is/issues/49) | Тести, код і документація в матриці трасування |
+| T-50 | [#50](https://github.com/lrijht/supplier-price-monitoring-is/issues/50) | Валідація на імітаторі |
+| T-51 | [#51](https://github.com/lrijht/supplier-price-monitoring-is/issues/51) | Приймання поточної версії |
+
 ---
 
 ## Етап 0. Рішення щодо плану
