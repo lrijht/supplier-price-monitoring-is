@@ -1,0 +1,20 @@
+---
+config:
+  themeVariables:
+    fontSize: 15px
+---
+stateDiagram-v2
+    direction TB
+    [*] --> Todo : Агент (чернетка декомпозиції),<br/>Власник (затвердження на PLAN-GATE)
+    Todo --> InProgress : Розробник (запускає сесію агента,<br/>коли всі «blocked by» закрито),<br/>Власник (для Gate і Validation)
+    InProgress --> InReview : Агент (git add і звіт сесії),<br/>Розробник (власні тікети)
+    InProgress --> Todo : Розробник (обрив сесії,<br/>зміни відкладено)
+    InReview --> InProgress : Розробник-рев'юер (diff не прийнято),<br/>Власник (Gate повертає на доопрацювання)
+    InReview --> Done : Розробник (коміт після рев'ю diff —<br/>Test, Feature, Specification, Documentation, Verification),<br/>Власник (рішення Gate GO, Validation, Addendum)
+    Done --> InProgress : Власник (повторне відкриття —<br/>REVISE або повернення з Gate)
+    Done --> [*]
+
+    Todo : Todo
+    InProgress : In progress
+    InReview : In review
+    Done : Done

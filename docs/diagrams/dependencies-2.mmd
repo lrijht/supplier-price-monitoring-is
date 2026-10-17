@@ -1,0 +1,13 @@
+flowchart TB
+    T19["T-19, T-20, T-21 тести ядра"]:::crit
+    G22{{"T-22 gate: тест-кейси"}}:::gate
+    F23["T-23, T-24 запуск, статуси"]:::crit
+    F25["T-25 планувальник"]
+    T26["T-26, T-27 тести подій"]:::crit
+    G28{{"T-28 gate: тест-кейси"}}:::gate
+    F29["T-29, T-30 події"]:::crit
+    G31{{"T-31 gate ядра"}}:::gate
+    T19 --> G22 --> F23 --> T26 --> G28 --> F29 --> G31
+    G22 --> F25 --> G31
+    classDef crit fill:#fde2e2,stroke:#c0392b,color:#000
+    classDef gate fill:#fff4c2,stroke:#b7950b,color:#000

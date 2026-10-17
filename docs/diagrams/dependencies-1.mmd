@@ -1,0 +1,16 @@
+flowchart TB
+    G04{{"T-04 PLAN-GATE"}}:::gate
+    A["T-05→T-06 каркас"]:::crit
+    B["T-07…T-10 імітатор, розбирачі"]
+    C["T-11→T-12 вхід"]:::crit
+    D["T-13→T-14 довідники"]:::crit
+    E["T-15→T-16 прив'язки"]:::crit
+    F["T-17→T-18 налаштування"]
+    T19["T-19, T-20, T-21 тести ядра"]:::crit
+    G04 --> A & B
+    A --> C --> D --> E --> T19
+    B --> D
+    B --> T19
+    C --> F --> T19
+    classDef crit fill:#fde2e2,stroke:#c0392b,color:#000
+    classDef gate fill:#fff4c2,stroke:#b7950b,color:#000
