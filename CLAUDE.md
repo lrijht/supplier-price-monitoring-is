@@ -7,6 +7,7 @@ Spec-driven development. The file in /spec is the single source of truth.
 /spec — system concept, SRS (lab 2), open questions (Ukrainian)
 /tests — pytest tests
 /src — application code (Python 3.12, FastAPI, SQLite — to be confirmed in lab 2)
+/simulator — supplier simulator, a separate app outside /src (REQ-NF-029); /src never imports it
 /docs — lab reports, diagrams (Ukrainian)
 /logs — agent session log, gate decisions, conflict records (Ukrainian)
 
