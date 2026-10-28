@@ -1,53 +1,57 @@
-%% Зв'язки ресурсів REST API (чернетка, docs/api/resources.md, розділ 2).
-%% Підпис класу — адреса ресурсу або назва вкладеного ресурсу. Поля з * у цьому файлі
-%% запропоновано агентом (ПА-4); Mermaid показує їх курсивом без зірочки.
+%% Зв'язки ресурсів REST API (docs/api/resources.md, розділ 2; SRS 1.9).
+%% Підпис класу — адреса ресурсу або назва вкладеного ресурсу.
 %% <<embedded>> — ресурс без власної адреси, входить у відповідь іншого ресурсу.
+%% <<singleton>> — підресурс-одинак в однині.
 classDiagram
     direction LR
 
-    class Session["/sessions"] {
-        <<resource>>
+    class Session["/sessions/current"] {
+        <<singleton>>
         account
     }
     class Account["Account"] {
         <<embedded>>
-        login*
-        role*
+        login
+        role
     }
     class Supplier["/suppliers"] {
         <<resource>>
-        id*
-        name*
+        id
+        name
         catalog_url
         parser
-        active*
-        last_update_date*
+        active
+        last_update_date
     }
     class Parser["/parsers"] {
         <<resource>>
-        parser
+        items
     }
     class Material["/materials"] {
         <<resource>>
-        id*
-        name*
+        id
+        name
         unit
-        active*
-        linked_items_count*
+        active
+        linked_items_count
     }
     class SupplierItem["SupplierItem"] {
         <<embedded>>
-        id*
+        id
+        supplier
         sku
-        name*
+        name
         unit
-        last_seen_date*
+        last_seen_date
     }
-    class Link["/links"] {
-        <<resource>>
-        id*
+    class Link["/supplier-items/{supplier_item_id}/link"] {
+        <<singleton>>
         supplier_item
         material
+    }
+    class MaterialLinks["/materials/{material_id}/links"] {
+        <<resource>>
+        items: Link
     }
     class UnlinkedItem["/unlinked-items"] {
         <<resource>>
@@ -57,87 +61,92 @@ classDiagram
         <<resource>>
         supplier_item
         material
-        last_unit_mismatch_date*
+        last_unit_mismatch_date
     }
     class DailyPrice["DailyPrice"] {
         <<embedded>>
-        price*
-        date*
+        price
+        date
         unit_mismatch
     }
     class ComparisonList["/material-comparisons"] {
         <<resource>>
         material
         cheapest_supplier
-        price*
+        price
     }
     class MaterialComparison["/material-comparisons/{material_id}"] {
         <<resource>>
         material
-        rows: supplier, daily_price, stale, cheapest*, difference_from_cheapest
+        items: supplier, daily_price, stale, cheapest, difference_from_cheapest
     }
-    class PriceHistory["/price-histories/{material_id}"] {
-        <<resource>>
+    class PriceHistory["/materials/{material_id}/price-history"] {
+        <<singleton>>
         material
-        period*
-        rows: date*, supplier, price*, unit_mismatch, effective_at_period_start*
+        period
+        items: date, supplier, price, unit_mismatch, effective_at_period_start
     }
     class Event["/events"] {
         <<resource>>
-        id*
-        kind*
-        date*
-        created_at*
-        old_price*
-        new_price*
-        change_percent*
-        price*
+        id
+        kind
+        date
+        created_at
+        old_price
+        new_price
+        change_percent
+        price
     }
     class SupplierUpdateStatus["/supplier-update-statuses"] {
         <<resource>>
         supplier
-        last_update_date*
+        last_update_date
     }
     class Settings["/settings"] {
-        <<resource>>
-        update_time*
+        <<singleton>>
+        update_time
         notification_threshold
     }
     class Run["/runs"] {
         <<resource>>
-        id*
+        id
         trigger
-        started_at*
-        finished_at*
-        started_by*
-        status*
+        started_at
+        finished_at
+        started_by
+        status
     }
     class SupplierRunStatus["SupplierRunStatus"] {
         <<embedded>>
-        status*
-        parsed_items_count*
-        error_reason*
-        warnings*
-        volume_acceptance_available*
+        status
+        parsed_items_count
+        reason_code
+        error_reason
+        warnings
+        volume_acceptance_available
     }
     class VolumeAcceptance["/volume-acceptances"] {
         <<resource>>
-        id*
-        run_id*
-        accepted_by*
-        accepted_at*
+        id
+        run_id
+        accepted_by
+        accepted_at
         volume_baseline
     }
-    class RunLog["/run-log"] {
+    class RunLogEntry["/run-log-entries"] {
         <<resource>>
-        kind*
+        kind
+        occurred_at
+        trigger
     }
 
     Session "1" --> "1" Account : відкрита для
     Supplier "*" --> "1" Parser : розбирає
     Supplier "1" *-- "*" SupplierItem : позиції
-    SupplierItem "1" -- "0..1" Link : прив'язка
+    SupplierItem "1" *-- "0..1" Link : прив'язка
     Link "*" --> "1" Material : до матеріалу
+    MaterialLinks ..> Link : прив'язки матеріалу
+    Material "1" -- "1" MaterialLinks
     UnlinkedItem ..> SupplierItem : позиція без прив'язки
     AttentionItem ..> Link : прив'язка з unit_mismatch
     SupplierItem "1" -- "*" DailyPrice : ціни дня
@@ -146,7 +155,7 @@ classDiagram
     ComparisonList ..> Supplier : cheapest_supplier
     MaterialComparison ..> Material
     MaterialComparison ..> DailyPrice : остання відома ціна
-    PriceHistory ..> Material
+    Material "1" *-- "1" PriceHistory : історія
     PriceHistory ..> DailyPrice : зміни ціни
     Event "*" --> "1" Material
     Event "*" --> "1" Supplier
@@ -155,5 +164,5 @@ classDiagram
     SupplierRunStatus "*" --> "1" Supplier
     VolumeAcceptance "*" --> "1" Run : запуск зі статусом «частково»
     VolumeAcceptance "*" --> "1" Supplier
-    RunLog o-- "*" Run : записи
-    RunLog o-- "*" VolumeAcceptance : записи
+    RunLogEntry "1" --> "0..1" Run : kind = run
+    RunLogEntry "1" --> "0..1" VolumeAcceptance : kind = volume_acceptance
