@@ -1,0 +1,2782 @@
+openapi: 3.1.0
+info:
+  title: Моніторинг цін постачальників — REST API
+  version: 0.1.0
+  description: |
+    Контракт REST API системи моніторингу цін постачальників матеріалів (REQ-NF-031).
+    Джерела: `spec/srs.md` 1.9, `docs/api/resources.md`. Після API-GATE контракт змінюється
+    лише адендумом (SRS, п. 3.1.4).
+
+    **Сесія.** Вхід — `POST /sessions`; сервер видає cookie `spm_session` з атрибутом
+    `SameSite=Lax` (схема `cookieAuth`). Сесія та сама, що й у вебінтерфейсі, і завершується
+    після 8 годин бездіяльності (REQ-NF-021). Ключів і токенів немає.
+
+    **Порядок перевірок.** Відповідь дає перша перевірка, що не пройшла:
+    401 (сесія) → 403 (роль) → 404 (ресурс зі шляху) → 415 (`Content-Type` запиту з тілом) →
+    422 (вміст запиту) → 409 (стан системи). Менеджер на операції адміністратора завжди
+    отримує 403 «немає доступу» (REQ-F-005).
+
+    **Запити.** Запити з тілом (`POST`, `PUT`, `PATCH`) — лише з
+    `Content-Type: application/json`, інакше 415. Запити без тіла (`POST /runs`, `DELETE`)
+    заголовка не потребують. Невідоме поле або поле лише для читання в тілі — 422. Невідомі
+    параметри запиту ігноруються.
+
+    **Відповідь 405.** Метод, якого адреса не має, отримує 405 `method_not_allowed`
+    (спільна відповідь `MethodNotAllowed`). Зокрема DELETE на адресах постачальників і
+    матеріалів: записи не видаляються, лише деактивуються через `PATCH` з `active: false`
+    (REQ-F-010). DELETE є лише для виходу і зняття прив'язки (Р-118).
+
+    **Значення.** Дата — `РРРР-ММ-ДД`; дата й час — ISO 8601 зі зсувом київського часу.
+    Ціни й різниця в гривнях — рядок із крапкою і двома знаками (`"1250.50"`). Відсотки —
+    число, округлене до 0,1, без «+». Відсутнє значення — `null`, поле є завжди; виняток —
+    постачальник для менеджера без `catalog_url` і `parser` (REQ-F-070).
+
+    **Сторінки.** Списки REQ-F-057 віддаються по 50 записів; номер сторінки `page` від 1;
+    номер за межами — 200 з порожнім `items`. Порядок фіксований.
+
+    **Помилки.** `application/problem+json` (RFC 9457): `type` — завжди `about:blank`,
+    `title` — українська назва статусу HTTP, `detail` — текст українською, `code` — машинний
+    код, `errors` — помилки полів.
+
+    **Приклади.** Кожна відповідь має іменовані приклади для mock-сервера; для помилок —
+    окремий приклад на кожен `code`.
+servers:
+  - url: http://localhost:8000/api/v1
+    description: локальний сервер
+security:
+  - cookieAuth: []
+tags:
+  - name: Вхід і розмежування доступу
+    description: Вхід, поточна сесія, вихід (SRS, п. 2.2; REQ-F-001…REQ-F-006, REQ-F-070, REQ-F-071).
+  - name: Ведення довідників
+    description: >-
+      Функція 1 (SRS, п. 2.2): постачальники, матеріали, деактивація; прив'язка позицій
+      постачальників до матеріалів.
+  - name: Автоматичне оновлення цін
+    description: >-
+      Функція 2 (SRS, п. 2.2): ручний запуск, журнал оновлень, прийняття нового обсягу,
+      налаштування, стан оновлення постачальників.
+  - name: Порівняння цін
+    description: 'Функція 3 (SRS, п. 2.2): загальний список порівняння і порівняння матеріалу.'
+  - name: Історія цін
+    description: 'Функція 4 (SRS, п. 2.2): екран історії матеріалу за період.'
+  - name: Сповіщення про зміни цін і асортименту
+    description: 'Функція 5 (SRS, п. 2.2): стрічка змін.'
+
+paths:
+  /sessions:
+    post:
+      tags: [Вхід і розмежування доступу]
+      operationId: createSession
+      summary: Вхід — відкрити сесію
+      description: >-
+        Відкриває сесію за логіном і паролем. Логін звіряється без урахування регістру
+        (REQ-F-001). Роль — без сесії.
+      x-req-ids: [REQ-F-001, REQ-NF-021, REQ-NF-031]
+      x-bdd: [BDD-065, BDD-068]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionCreate'
+            examples:
+              admin:
+                summary: вхід адміністратора з логіном в іншому регістрі
+                value: { login: Admin, password: correct-password }
+      responses:
+        '201':
+          description: Сесію відкрито.
+          headers:
+            Set-Cookie:
+              description: Cookie сесії `spm_session` з атрибутом `SameSite=Lax`.
+              schema:
+                type: string
+              example: spm_session=<значення>; SameSite=Lax
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+              examples:
+                admin:
+                  summary: логін — як збережено в обліковому записі
+                  value: { account: { login: admin, role: admin } }
+        '401':
+          description: Неправильний логін або пароль.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                invalid_credentials:
+                  $ref: '#/components/examples/invalid_credentials'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          description: Тіло запиту некоректне.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+              examples:
+                validation_failed:
+                  $ref: '#/components/examples/validation_failed_login_required'
+                validation_failed_malformed_json:
+                  $ref: '#/components/examples/validation_failed_malformed_json'
+
+  /sessions/current:
+    get:
+      tags: [Вхід і розмежування доступу]
+      operationId: getCurrentSession
+      summary: Поточна сесія — логін і роль
+      description: >-
+        Логін у тому вигляді, у якому його збережено в обліковому записі, і роль (REQ-F-071).
+        Роль — обидві.
+      x-req-ids: [REQ-F-071, REQ-NF-031]
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Поточна сесія.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+              examples:
+                admin:
+                  summary: адміністратор
+                  value: { account: { login: admin, role: admin } }
+                manager:
+                  summary: менеджер
+                  value: { account: { login: ivan.petrenko_1, role: manager } }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags: [Вхід і розмежування доступу]
+      operationId: deleteCurrentSession
+      summary: Вихід — завершити сесію
+      description: >-
+        Завершує сесію (REQ-F-002). Це не видалення запису (REQ-NF-031, Р-118). Тіла немає,
+        `Content-Type` не потрібен. Роль — обидві.
+      x-req-ids: [REQ-F-002, REQ-NF-031]
+      security:
+        - cookieAuth: []
+      responses:
+        '204':
+          description: Сесію завершено.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /suppliers:
+    get:
+      tags: [Ведення довідників]
+      operationId: listSuppliers
+      summary: Список постачальників
+      description: >-
+        Екран «постачальники» для адміністратора; для менеджера — список для фільтра стрічки
+        (REQ-F-070). Усі постачальники, зокрема неактивні, за назвою в абетковому порядку
+        (REQ-F-057). Менеджер отримує постачальника без `catalog_url` і `parser`. Роль — обидві.
+      x-req-ids: [REQ-F-007, REQ-F-011, REQ-F-034, REQ-F-057, REQ-F-068, REQ-F-070]
+      x-bdd: [BDD-070]
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+      responses:
+        '200':
+          description: Сторінка постачальників.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplierPage'
+              examples:
+                admin:
+                  summary: адміністратор — усі поля
+                  value:
+                    items:
+                      - { id: 1, name: Альфа, catalog_url: 'http://localhost:8001/a', parser: table_layout, active: true, last_update_date: '2026-10-05' }
+                      - { id: 2, name: Бета, catalog_url: 'http://localhost:8001/b', parser: cards_layout, active: true, last_update_date: '2026-10-04' }
+                      - { id: 3, name: Гама, catalog_url: 'http://localhost:8001/c', parser: list_layout, active: true, last_update_date: null }
+                      - { id: 4, name: Ірпінь, catalog_url: 'http://localhost:8001/d', parser: table_layout, active: false, last_update_date: '2026-09-20' }
+                    page: 1
+                    page_size: 50
+                    total_items: 4
+                    total_pages: 1
+                manager:
+                  summary: менеджер — без адреси каталогу і розбирача (BDD-070)
+                  value:
+                    items:
+                      - { id: 1, name: Альфа, active: true, last_update_date: '2026-10-05' }
+                      - { id: 2, name: Бета, active: true, last_update_date: '2026-10-04' }
+                      - { id: 3, name: Гама, active: true, last_update_date: null }
+                      - { id: 4, name: Ірпінь, active: false, last_update_date: '2026-09-20' }
+                    page: 1
+                    page_size: 50
+                    total_items: 4
+                    total_pages: 1
+                page_out_of_range:
+                  summary: номер сторінки за межами
+                  value: { items: [], page: 3, page_size: 50, total_items: 4, total_pages: 1 }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+    post:
+      tags: [Ведення довідників]
+      operationId: createSupplier
+      summary: Створити постачальника
+      description: >-
+        Назва обов'язкова й унікальна без урахування регістру; адреса каталогу — абсолютна
+        адреса http або https; розбирач — один зі списку `GET /parsers` (REQ-F-007). Роль — адмін.
+      x-req-ids: [REQ-F-007, REQ-NF-006]
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierCreate'
+            examples:
+              alpha:
+                summary: новий постачальник
+                value: { name: Альфа, catalog_url: 'http://localhost:8001/a', parser: table_layout, active: true }
+      responses:
+        '201':
+          description: Постачальника створено.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Supplier'
+              examples:
+                alpha:
+                  summary: щойно створений постачальник
+                  value: { id: 1, name: Альфа, catalog_url: 'http://localhost:8001/a', parser: table_layout, active: true, last_update_date: null }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          description: Тіло запиту некоректне.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+              examples:
+                validation_failed:
+                  $ref: '#/components/examples/validation_failed_name_required'
+                validation_failed_catalog_url_invalid:
+                  $ref: '#/components/examples/validation_failed_catalog_url_invalid'
+                validation_failed_parser_unknown:
+                  $ref: '#/components/examples/validation_failed_parser_unknown'
+                validation_failed_unknown_field:
+                  $ref: '#/components/examples/validation_failed_unknown_field'
+                validation_failed_read_only_field:
+                  $ref: '#/components/examples/validation_failed_read_only_field'
+                validation_failed_invalid_type:
+                  $ref: '#/components/examples/validation_failed_invalid_type'
+                validation_failed_malformed_json:
+                  $ref: '#/components/examples/validation_failed_malformed_json'
+        '409':
+          description: Назва постачальника вже є.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                supplier_name_taken:
+                  $ref: '#/components/examples/supplier_name_taken'
+
+  /suppliers/{supplier_id}:
+    parameters:
+      - $ref: '#/components/parameters/supplier_id'
+    get:
+      tags: [Ведення довідників]
+      operationId: getSupplier
+      summary: Один постачальник
+      description: Форма редагування постачальника. Роль — адмін.
+      x-req-ids: [REQ-F-007]
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Постачальник.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Supplier'
+              examples:
+                alpha:
+                  summary: постачальник
+                  value: { id: 1, name: Альфа, catalog_url: 'http://localhost:8001/a', parser: table_layout, active: true, last_update_date: '2026-10-05' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Ведення довідників]
+      operationId: updateSupplier
+      summary: Змінити, деактивувати чи активувати постачальника
+      description: >-
+        Змінює будь-які з полів `name`, `catalog_url`, `parser`, `active`. `active: false` —
+        деактивація (REQ-F-010, REQ-F-011), `active: true` — повторна активація (REQ-F-056).
+        Зміна діє з наступного запуску (REQ-F-067). Роль — адмін.
+      x-req-ids: [REQ-F-007, REQ-F-010, REQ-F-011, REQ-F-056, REQ-F-067]
+      x-bdd: [BDD-044, BDD-053, BDD-060]
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierUpdate'
+            examples:
+              deactivate:
+                summary: деактивація
+                value: { active: false }
+              change_catalog_url:
+                summary: зміна адреси каталогу
+                value: { catalog_url: 'http://localhost:8001/a2' }
+      responses:
+        '200':
+          description: Постачальника змінено.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Supplier'
+              examples:
+                deactivated:
+                  summary: постачальник після деактивації
+                  value: { id: 4, name: Ірпінь, catalog_url: 'http://localhost:8001/d', parser: table_layout, active: false, last_update_date: '2026-09-20' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          description: Тіло запиту некоректне.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+              examples:
+                validation_failed:
+                  $ref: '#/components/examples/validation_failed_catalog_url_invalid'
+                validation_failed_parser_unknown:
+                  $ref: '#/components/examples/validation_failed_parser_unknown'
+                validation_failed_read_only_field:
+                  $ref: '#/components/examples/validation_failed_read_only_field'
+                validation_failed_unknown_field:
+                  $ref: '#/components/examples/validation_failed_unknown_field'
+                validation_failed_malformed_json:
+                  $ref: '#/components/examples/validation_failed_malformed_json'
+        '409':
+          description: Назва постачальника вже є.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                supplier_name_taken:
+                  $ref: '#/components/examples/supplier_name_taken'
+
+  /parsers:
+    get:
+      tags: [Ведення довідників]
+      operationId: listParsers
+      summary: Список наявних розбирачів
+      description: >-
+        Назви розбирачів, з яких адміністратор обирає розбирач постачальника (REQ-F-007,
+        REQ-NF-006). Переліку розбирачів контракт не фіксує. Роль — адмін.
+      x-req-ids: [REQ-F-007, REQ-NF-006]
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Список розбирачів.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParserList'
+              examples:
+                three_layouts:
+                  summary: розбирачі для трьох версток (REQ-NF-026)
+                  value: { items: [table_layout, cards_layout, list_layout] }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /materials:
+    get:
+      tags: [Ведення довідників]
+      operationId: listMaterials
+      summary: Список матеріалів
+      description: >-
+        Екран «матеріали» і вибір матеріалу під час прив'язки й перев'язки (REQ-F-069) для
+        адміністратора; для менеджера — вибір матеріалу на екрані історії і фільтр стрічки
+        (REQ-F-070). Усі матеріали, зокрема неактивні, за найменуванням в абетковому порядку
+        (REQ-F-057). Роль — обидві.
+      x-req-ids: [REQ-F-008, REQ-F-049, REQ-F-057, REQ-F-068, REQ-F-069, REQ-F-070]
+      x-bdd: [BDD-063, BDD-070]
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - name: q
+          in: query
+          required: false
+          description: Пошук за найменуванням без урахування регістру.
+          schema:
+            type: string
+          example: лдсп
+      responses:
+        '200':
+          description: Сторінка матеріалів.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaterialPage'
+              examples:
+                with_inactive:
+                  summary: активний і деактивований матеріали (BDD-070)
+                  value:
+                    items:
+                      - { id: 1, name: ЛДСП Білий 18 мм, unit: шт, active: true, linked_items_count: 2 }
+                      - { id: 2, name: М2, unit: шт, active: false, linked_items_count: 1 }
+                    page: 1
+                    page_size: 50
+                    total_items: 2
+                    total_pages: 1
+                page_out_of_range:
+                  summary: номер сторінки за межами
+                  value: { items: [], page: 2, page_size: 50, total_items: 2, total_pages: 1 }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+    post:
+      tags: [Ведення довідників]
+      operationId: createMaterial
+      summary: Створити матеріал
+      description: >-
+        Найменування обов'язкове й унікальне без урахування регістру; одиниця виміру непорожня
+        (REQ-F-008). Роль — адмін.
+      x-req-ids: [REQ-F-008]
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaterialCreate'
+            examples:
+              ldsp:
+                summary: новий матеріал
+                value: { name: ЛДСП Білий 18 мм, unit: шт, active: true }
+      responses:
+        '201':
+          description: Матеріал створено.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Material'
+              examples:
+                ldsp:
+                  summary: щойно створений матеріал
+                  value: { id: 1, name: ЛДСП Білий 18 мм, unit: шт, active: true, linked_items_count: 0 }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          description: Тіло запиту некоректне.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+              examples:
+                validation_failed:
+                  $ref: '#/components/examples/validation_failed_name_required'
+                validation_failed_unit_required:
+                  $ref: '#/components/examples/validation_failed_unit_required'
+                validation_failed_unknown_field:
+                  $ref: '#/components/examples/validation_failed_unknown_field'
+                validation_failed_invalid_type:
+                  $ref: '#/components/examples/validation_failed_invalid_type'
+                validation_failed_malformed_json:
+                  $ref: '#/components/examples/validation_failed_malformed_json'
+        '409':
+          description: Найменування матеріалу вже є.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                material_name_taken:
+                  $ref: '#/components/examples/material_name_taken'
+
+  /materials/{material_id}:
+    parameters:
+      - $ref: '#/components/parameters/material_id'
+    get:
+      tags: [Ведення довідників]
+      operationId: getMaterial
+      summary: Один матеріал
+      description: Форма редагування матеріалу. Роль — адмін.
+      x-req-ids: [REQ-F-008]
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Матеріал.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Material'
+              examples:
+                ldsp:
+                  summary: матеріал
+                  value: { id: 1, name: ЛДСП Білий 18 мм, unit: шт, active: true, linked_items_count: 2 }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Ведення довідників]
+      operationId: updateMaterial
+      summary: Змінити, деактивувати чи активувати матеріал
+      description: >-
+        Змінює будь-які з полів `name`, `unit`, `active`. Одиницю матеріалу з цінами дня або
+        прив'язками змінити не можна (REQ-F-009). `active: false` — деактивація (REQ-F-049),
+        `active: true` — повторна активація (REQ-F-051). Зміна діє з наступного запуску
+        (REQ-F-067). Роль — адмін.
+      x-req-ids: [REQ-F-008, REQ-F-009, REQ-F-010, REQ-F-049, REQ-F-051, REQ-F-067, REQ-F-070]
+      x-bdd: [BDD-034, BDD-038, BDD-040, BDD-070]
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaterialUpdate'
+            examples:
+              deactivate:
+                summary: деактивація
+                value: { active: false }
+              rename:
+                summary: зміна найменування
+                value: { name: ЛДСП Білий 18 мм (Egger) }
+      responses:
+        '200':
+          description: Матеріал змінено.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Material'
+              examples:
+                deactivated:
+                  summary: матеріал після деактивації
+                  value: { id: 2, name: М2, unit: шт, active: false, linked_items_count: 1 }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          description: Тіло запиту некоректне.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+              examples:
+                validation_failed:
+                  $ref: '#/components/examples/validation_failed_unit_required'
+                validation_failed_read_only_field:
+                  $ref: '#/components/examples/validation_failed_read_only_field_linked_items_count'
+                validation_failed_unknown_field:
+                  $ref: '#/components/examples/validation_failed_unknown_field'
+                validation_failed_malformed_json:
+                  $ref: '#/components/examples/validation_failed_malformed_json'
+        '409':
+          description: Зміна суперечить стану матеріалу.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                material_name_taken:
+                  $ref: '#/components/examples/material_name_taken'
+                unit_locked:
+                  $ref: '#/components/examples/unit_locked'
+
+  /materials/{material_id}/links:
+    parameters:
+      - $ref: '#/components/parameters/material_id'
+    get:
+      tags: [Ведення довідників]
+      operationId: listMaterialLinks
+      summary: Прив'язані позиції матеріалу
+      description: >-
+        Перелік прив'язаних до матеріалу позицій: постачальник, артикул, найменування, одиниця
+        (REQ-F-069). За назвою постачальника, далі за артикулом (REQ-F-057). Дії «зняти» і
+        «перев'язати» — `DELETE` і `PUT /supplier-items/{supplier_item_id}/link`. Роль — адмін.
+      x-req-ids: [REQ-F-057, REQ-F-069]
+      x-bdd: [BDD-063]
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+      responses:
+        '200':
+          description: Сторінка прив'язок.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkPage'
+              examples:
+                two_links:
+                  summary: дві прив'язані позиції (REQ-F-069)
+                  value:
+                    items:
+                      - supplier_item: { id: 11, supplier: { id: 1, name: Альфа }, sku: А-1, name: ЛДСП білий 18, unit: шт }
+                        material: { id: 1, name: ЛДСП Білий 18 мм }
+                      - supplier_item: { id: 21, supplier: { id: 2, name: Бета }, sku: Б-1, name: ЛДСП Білий 18мм, unit: Шт. }
+                        material: { id: 1, name: ЛДСП Білий 18 мм }
+                    page: 1
+                    page_size: 50
+                    total_items: 2
+                    total_pages: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /materials/{material_id}/price-history:
+    parameters:
+      - $ref: '#/components/parameters/material_id'
+    get:
+      tags: [Історія цін]
+      operationId: getMaterialPriceHistory
+      summary: Історія матеріалу за період
+      description: >-
+        Зміни ціни матеріалу за період: перша ціна періоду і кожна наступна, що відрізняється
+        від попередньої, для кожного постачальника (REQ-F-040). Від новіших до старіших; рядки
+        «чинна на початок періоду» — останні. Доступна і для деактивованого матеріалу
+        (REQ-F-049). Без розбиття на сторінки. Роль — обидві.
+      x-req-ids: [REQ-F-011, REQ-F-016, REQ-F-040, REQ-F-041, REQ-F-049]
+      x-bdd: [BDD-026, BDD-034, BDD-036]
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: period
+          in: query
+          required: true
+          description: Період історії; межі включні, сьогоднішня дата входить у період.
+          schema:
+            $ref: '#/components/schemas/HistoryPeriod'
+          example: last_7_days
+      responses:
+        '200':
+          description: Історія матеріалу.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceHistory'
+              examples:
+                last_7_days:
+                  summary: сьогодні 2026-10-10, період 7 днів (REQ-F-040)
+                  value:
+                    material: { id: 1, name: ЛДСП Білий 18 мм, active: true }
+                    period: last_7_days
+                    items:
+                      - { date: '2026-10-08', supplier: { id: 1, name: Альфа }, price: '1010.00', unit_mismatch: false, effective_at_period_start: false }
+                      - { date: '2026-10-05', supplier: { id: 1, name: Альфа }, price: '1000.00', unit_mismatch: false, effective_at_period_start: false }
+                      - { date: '2026-09-01', supplier: { id: 2, name: Бета }, price: '1200.00', unit_mismatch: false, effective_at_period_start: true }
+                unit_mismatch:
+                  summary: та сама сума з позначкою «одиниця не збігається» — два рядки
+                  value:
+                    material: { id: 1, name: ЛДСП Білий 18 мм, active: true }
+                    period: all
+                    items:
+                      - { date: '2026-10-09', supplier: { id: 1, name: Альфа }, price: '1000.00', unit_mismatch: true, effective_at_period_start: false }
+                      - { date: '2026-10-08', supplier: { id: 1, name: Альфа }, price: '1000.00', unit_mismatch: false, effective_at_period_start: false }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Параметр `period` некоректний.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+              examples:
+                validation_failed:
+                  $ref: '#/components/examples/validation_failed_period_required'
+                validation_failed_period_invalid:
+                  $ref: '#/components/examples/validation_failed_period_invalid'
+
+  /unlinked-items:
+    get:
+      tags: [Ведення довідників]
+      operationId: listUnlinkedItems
+      summary: Непов'язані позиції
+      description: >-
+        Позиції всіх постачальників без прив'язки, зокрема ті, яких на останній сторінці вже
+        немає (REQ-F-012). За назвою постачальника, далі за артикулом (REQ-F-057). Позиції
+        неактивного постачальника мають `supplier.active: false` (REQ-F-011). Роль — адмін.
+      x-req-ids: [REQ-F-011, REQ-F-012, REQ-F-057]
+      x-bdd: [BDD-019]
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - name: q
+          in: query
+          required: false
+          description: Пошук за артикулом і найменуванням без урахування регістру.
+          schema:
+            type: string
+          example: білий
+      responses:
+        '200':
+          description: Сторінка непов'язаних позицій.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnlinkedItemPage'
+              examples:
+                two_suppliers:
+                  summary: позиції двох постачальників, одна — неактивного
+                  value:
+                    items:
+                      - supplier_item: { id: 29, supplier: { id: 2, name: Бета, active: true }, sku: Б-9, name: ДСП білий 16, unit: шт, last_seen_date: '2026-10-05' }
+                      - supplier_item: { id: 41, supplier: { id: 4, name: Ірпінь, active: false }, sku: І-3, name: Кромка біла, unit: п.м., last_seen_date: '2026-09-20' }
+                    page: 1
+                    page_size: 50
+                    total_items: 2
+                    total_pages: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /attention-items:
+    get:
+      tags: [Ведення довідників]
+      operationId: listAttentionItems
+      summary: Позиції, що потребують уваги
+      description: >-
+        Прив'язані позиції, одиниця яких на сторінці не збігається з одиницею матеріалу
+        (REQ-F-017, REQ-F-066). Колонки — за REQ-F-068. За назвою постачальника, далі за
+        артикулом (REQ-F-057). Роль — адмін.
+      x-req-ids: [REQ-F-011, REQ-F-017, REQ-F-057, REQ-F-066, REQ-F-068]
+      x-bdd: [BDD-028, BDD-052]
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+      responses:
+        '200':
+          description: Сторінка позицій, що потребують уваги.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttentionItemPage'
+              examples:
+                unit_changed:
+                  summary: одиниця на сторінці змінилася з «шт» на «уп» (REQ-F-017)
+                  value:
+                    items:
+                      - supplier_item: { id: 32, supplier: { id: 3, name: Гама, active: true }, sku: В-2, name: ЛДСП білий 18 мм, unit: уп }
+                        material: { id: 1, name: ЛДСП Білий 18 мм, unit: шт }
+                        last_unit_mismatch_date: '2026-10-09'
+                    page: 1
+                    page_size: 50
+                    total_items: 1
+                    total_pages: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /supplier-items/{supplier_item_id}/link:
+    parameters:
+      - $ref: '#/components/parameters/supplier_item_id'
+    put:
+      tags: [Ведення довідників]
+      operationId: putSupplierItemLink
+      summary: Прив'язати позицію або перев'язати на інший матеріал
+      description: >-
+        Прив'язує непов'язану позицію до матеріалу (201) або перев'язує прив'язану на інший
+        матеріал (200). Той самий матеріал — 200 без змін. Перевірки: збіг одиниць після
+        нормалізації (REQ-F-014), одна позиція постачальника на матеріал (REQ-F-048), активний
+        матеріал (REQ-F-050). Другої прив'язки в позиції не виникає (REQ-F-013). Зміна діє з
+        наступного запуску (REQ-F-067). Роль — адмін.
+      x-req-ids: [REQ-F-013, REQ-F-014, REQ-F-015, REQ-F-016, REQ-F-048, REQ-F-050, REQ-F-066, REQ-F-067, REQ-F-069]
+      x-bdd: [BDD-019, BDD-026, BDD-027, BDD-032, BDD-037, BDD-042, BDD-055, BDD-056, BDD-063]
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LinkPut'
+            examples:
+              to_material_1:
+                summary: прив'язати до матеріалу 1
+                value: { material_id: 1 }
+      responses:
+        '200':
+          description: Позицію перев'язано або прив'язка вже така.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Link'
+              examples:
+                relinked:
+                  summary: Б-1 перев'язано на М2 (REQ-F-069)
+                  value:
+                    supplier_item: { id: 21, supplier: { id: 2, name: Бета }, sku: Б-1, name: ЛДСП Білий 18мм, unit: Шт. }
+                    material: { id: 2, name: М2 }
+        '201':
+          description: Позицію прив'язано.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Link'
+              examples:
+                linked:
+                  summary: Б-9 прив'язано до матеріалу
+                  value:
+                    supplier_item: { id: 29, supplier: { id: 2, name: Бета }, sku: Б-9, name: ДСП білий 16, unit: шт }
+                    material: { id: 1, name: ЛДСП Білий 18 мм }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          description: Тіло запиту некоректне.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+              examples:
+                validation_failed:
+                  $ref: '#/components/examples/validation_failed_material_id_required'
+                validation_failed_reference_not_found:
+                  $ref: '#/components/examples/validation_failed_material_not_found'
+                validation_failed_unknown_field:
+                  $ref: '#/components/examples/validation_failed_unknown_field'
+                validation_failed_malformed_json:
+                  $ref: '#/components/examples/validation_failed_malformed_json'
+        '409':
+          description: Прив'язка суперечить стану позиції чи матеріалу.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                link_units_differ:
+                  $ref: '#/components/examples/link_units_differ'
+                material_supplier_already_linked:
+                  $ref: '#/components/examples/material_supplier_already_linked'
+                material_inactive:
+                  $ref: '#/components/examples/material_inactive'
+    delete:
+      tags: [Ведення довідників]
+      operationId: deleteSupplierItemLink
+      summary: Зняти прив'язку
+      description: >-
+        Знімає прив'язку; позиція повертається до непов'язаних (REQ-F-015). Це не видалення
+        запису (REQ-NF-031, Р-118). Для непов'язаної позиції — 404. Тіла немає, `Content-Type`
+        не потрібен. Роль — адмін.
+      x-req-ids: [REQ-F-015, REQ-F-066, REQ-F-069, REQ-NF-031]
+      x-bdd: [BDD-056, BDD-063]
+      security:
+        - cookieAuth: []
+      responses:
+        '204':
+          description: Прив'язку знято.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /material-comparisons:
+    get:
+      tags: [Порівняння цін]
+      operationId: listMaterialComparisons
+      summary: Загальний список порівняння
+      description: >-
+        Активні матеріали за найменуванням (REQ-F-057) з найдешевшим постачальником і ціною;
+        без придатної ціни — `null` (REQ-F-035). Формується в момент запиту (REQ-F-039).
+        Роль — обидві.
+      x-req-ids: [REQ-F-035, REQ-F-037, REQ-F-039, REQ-F-049, REQ-F-057, REQ-F-059]
+      x-bdd: [BDD-025, BDD-050, BDD-068]
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - name: q
+          in: query
+          required: false
+          description: Пошук за найменуванням матеріалу без урахування регістру (REQ-F-059).
+          schema:
+            type: string
+          example: лдсп
+      responses:
+        '200':
+          description: Сторінка загального списку порівняння.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComparisonListPage'
+              examples:
+                with_and_without_price:
+                  summary: матеріал із найдешевшим постачальником і матеріал без придатної ціни
+                  value:
+                    items:
+                      - { material: { id: 3, name: Кромка біла 2 мм }, cheapest_supplier: null, price: null }
+                      - { material: { id: 1, name: ЛДСП Білий 18 мм }, cheapest_supplier: { id: 1, name: Альфа }, price: '1000.00' }
+                    page: 1
+                    page_size: 50
+                    total_items: 2
+                    total_pages: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /material-comparisons/{material_id}:
+    parameters:
+      - $ref: '#/components/parameters/material_id'
+    get:
+      tags: [Порівняння цін]
+      operationId: getMaterialComparison
+      summary: Порівняння матеріалу
+      description: >-
+        Рядок на кожного активного постачальника, позиція якого прив'язана до матеріалу зараз:
+        остання відома ціна, `stale`, `cheapest`, різниця з найдешевшою (REQ-F-036…REQ-F-038,
+        REQ-F-065). Для деактивованого матеріалу — `material.active: false` і порожній `items`
+        («матеріал деактивовано», REQ-F-049). Формується в момент запиту (REQ-F-039). Без
+        розбиття на сторінки. Роль — обидві.
+      x-req-ids: [REQ-F-011, REQ-F-029, REQ-F-036, REQ-F-037, REQ-F-038, REQ-F-039, REQ-F-049, REQ-F-065]
+      x-bdd: [BDD-023, BDD-024, BDD-025, BDD-034, BDD-044, BDD-050, BDD-052, BDD-055]
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Порівняння матеріалу.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaterialComparison'
+              examples:
+                cheapest_stale_no_price:
+                  summary: сьогодні 2026-10-10; найдешевший, дорожчий, застаріла ціна, ціни ще немає
+                  value:
+                    material: { id: 1, name: ЛДСП Білий 18 мм, active: true }
+                    items:
+                      - supplier: { id: 1, name: Альфа }
+                        daily_price: { price: '1000.00', date: '2026-10-10', unit_mismatch: false }
+                        stale: false
+                        cheapest: true
+                        difference_from_cheapest: { percent: 0.0, amount: '0.00' }
+                      - supplier: { id: 2, name: Бета }
+                        daily_price: { price: '1100.00', date: '2026-10-10', unit_mismatch: false }
+                        stale: false
+                        cheapest: false
+                        difference_from_cheapest: { percent: 10.0, amount: '100.00' }
+                      - supplier: { id: 3, name: Гама }
+                        daily_price: { price: '900.00', date: '2026-10-07', unit_mismatch: false }
+                        stale: true
+                        cheapest: false
+                        difference_from_cheapest: null
+                material_deactivated:
+                  summary: матеріал деактивовано (REQ-F-049)
+                  value:
+                    material: { id: 2, name: М2, active: false }
+                    items: []
+                no_price_yet:
+                  summary: після перев'язки ціни для матеріалу ще немає (BDD-055)
+                  value:
+                    material: { id: 2, name: М2, active: true }
+                    items:
+                      - supplier: { id: 1, name: Альфа }
+                        daily_price: null
+                        stale: null
+                        cheapest: false
+                        difference_from_cheapest: null
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /events:
+    get:
+      tags: [Сповіщення про зміни цін і асортименту]
+      operationId: listEvents
+      summary: Стрічка змін
+      description: >-
+        Події від новіших до старіших за `created_at`; за однакового часу вище та, що створена
+        пізніше (REQ-F-057). Фільтри можна поєднувати (REQ-F-058); фільтр з неіснуючим
+        ідентифікатором дає порожній список. Роль — обидві.
+      x-req-ids: [REQ-F-011, REQ-F-042, REQ-F-049, REQ-F-057, REQ-F-058]
+      x-bdd: [BDD-045, BDD-064]
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - name: material_id
+          in: query
+          required: false
+          description: Фільтр за матеріалом.
+          schema:
+            type: integer
+          example: 1
+        - name: supplier_id
+          in: query
+          required: false
+          description: Фільтр за постачальником.
+          schema:
+            type: integer
+          example: 2
+        - name: kind
+          in: query
+          required: false
+          description: Фільтр за видом події.
+          schema:
+            $ref: '#/components/schemas/EventKind'
+          example: disappeared
+      responses:
+        '200':
+          description: Сторінка подій.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventPage'
+              examples:
+                three_kinds:
+                  summary: події трьох видів
+                  value:
+                    items:
+                      - { id: 103, kind: disappeared, date: '2026-10-06', created_at: '2026-10-06T03:31:20+03:00', material: { id: 1, name: ЛДСП Білий 18 мм }, supplier: { id: 2, name: Бета }, old_price: null, new_price: null, change_percent: null, price: null }
+                      - { id: 102, kind: price_change, date: '2026-10-05', created_at: '2026-10-05T03:31:10+03:00', material: { id: 1, name: ЛДСП Білий 18 мм }, supplier: { id: 1, name: Альфа }, old_price: '1000.00', new_price: '1010.00', change_percent: 1.0, price: null }
+                      - { id: 101, kind: appeared, date: '2026-10-04', created_at: '2026-10-04T03:31:05+03:00', material: { id: 1, name: ЛДСП Білий 18 мм }, supplier: { id: 3, name: Гама }, old_price: null, new_price: null, change_percent: null, price: '1100.00' }
+                    page: 1
+                    page_size: 50
+                    total_items: 3
+                    total_pages: 1
+                price_decrease:
+                  summary: зменшення ціни (REQ-F-044)
+                  value:
+                    items:
+                      - { id: 104, kind: price_change, date: '2026-10-07', created_at: '2026-10-07T03:31:00+03:00', material: { id: 1, name: ЛДСП Білий 18 мм }, supplier: { id: 1, name: Альфа }, old_price: '1000.00', new_price: '990.00', change_percent: -1.0, price: null }
+                    page: 1
+                    page_size: 50
+                    total_items: 1
+                    total_pages: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: Параметр запиту некоректний.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+              examples:
+                validation_failed:
+                  $ref: '#/components/examples/validation_failed_kind_invalid'
+                validation_failed_page_invalid:
+                  $ref: '#/components/examples/validation_failed_page_invalid'
+
+  /supplier-update-statuses:
+    get:
+      tags: [Автоматичне оновлення цін]
+      operationId: listSupplierUpdateStatuses
+      summary: Стан оновлення постачальників
+      description: >-
+        Активні постачальники за назвою (REQ-F-057) з датою останнього запуску зі статусом
+        «успіх» або «частково», зокрема в перерваному запуску і в запуску, що триває
+        (REQ-F-034); `null` — «ще не оновлювався». Роль — обидві.
+      x-req-ids: [REQ-F-034, REQ-F-057]
+      x-bdd: [BDD-035, BDD-039, BDD-069]
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+      responses:
+        '200':
+          description: Сторінка стану оновлення.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplierUpdateStatusPage'
+              examples:
+                three_suppliers:
+                  summary: оновлений, «частково» і ще не оновлювався
+                  value:
+                    items:
+                      - { supplier: { id: 1, name: Альфа }, last_update_date: '2026-10-05' }
+                      - { supplier: { id: 2, name: Бета }, last_update_date: '2026-10-04' }
+                      - { supplier: { id: 3, name: Гама }, last_update_date: null }
+                    page: 1
+                    page_size: 50
+                    total_items: 3
+                    total_pages: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /settings:
+    get:
+      tags: [Автоматичне оновлення цін]
+      operationId: getSettings
+      summary: Налаштування
+      description: Час щоденного оновлення і поріг сповіщень (REQ-F-019, REQ-F-043). Роль — адмін.
+      x-req-ids: [REQ-F-019, REQ-F-043]
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Налаштування.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+              examples:
+                defaults:
+                  summary: значення за замовчуванням
+                  value: { update_time: '03:30', notification_threshold: 1 }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    patch:
+      tags: [Автоматичне оновлення цін]
+      operationId: updateSettings
+      summary: Змінити налаштування
+      description: >-
+        Змінює будь-які з полів `update_time`, `notification_threshold`. Нове значення діє за
+        REQ-F-055 і REQ-F-043. Роль — адмін.
+      x-req-ids: [REQ-F-019, REQ-F-043, REQ-F-055, REQ-F-067]
+      x-bdd: [BDD-017, BDD-054, BDD-061, BDD-068]
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsUpdate'
+            examples:
+              threshold_2:
+                summary: поріг 2 % (BDD-068)
+                value: { notification_threshold: 2 }
+              time_0500:
+                summary: час оновлення 05:00
+                value: { update_time: '05:00' }
+      responses:
+        '200':
+          description: Налаштування змінено.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+              examples:
+                threshold_2:
+                  summary: поріг 2 %
+                  value: { update_time: '03:30', notification_threshold: 2 }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          description: Тіло запиту некоректне; попереднє значення лишається.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+              examples:
+                validation_failed:
+                  $ref: '#/components/examples/validation_failed_settings'
+                validation_failed_update_time_invalid:
+                  $ref: '#/components/examples/validation_failed_update_time_invalid'
+                validation_failed_threshold_out_of_range:
+                  $ref: '#/components/examples/validation_failed_threshold_out_of_range'
+                validation_failed_unknown_field:
+                  $ref: '#/components/examples/validation_failed_unknown_field'
+                validation_failed_malformed_json:
+                  $ref: '#/components/examples/validation_failed_malformed_json'
+
+  /runs:
+    post:
+      tags: [Автоматичне оновлення цін]
+      operationId: createRun
+      summary: Ручний запуск оновлення
+      description: >-
+        Запускає оновлення (REQ-F-020): 202 із запуском у статусі `in_progress` і заголовком
+        `Location`. Без активних постачальників запуск не створюється, а журнал отримує запис
+        «немає активних постачальників» — 200 із цим записом (REQ-F-063). Під час іншого
+        запуску — 409 «оновлення вже триває» (REQ-F-021). Тіла немає, `Content-Type` не
+        потрібен. Роль — адмін.
+      x-req-ids: [REQ-F-020, REQ-F-021, REQ-F-032, REQ-F-055, REQ-F-063]
+      x-bdd: [BDD-008, BDD-030, BDD-043]
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Активних постачальників немає; запуск не створено, журнал отримав запис.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunLogEntry'
+              examples:
+                no_active_suppliers:
+                  summary: усіх постачальників деактивовано (REQ-F-063)
+                  value: { kind: no_active_suppliers, occurred_at: '2026-10-05T10:00:00+03:00', trigger: manual, run: null, volume_acceptance: null }
+        '202':
+          description: Запуск почався.
+          headers:
+            Location:
+              description: Адреса запуску.
+              schema:
+                type: string
+              example: /api/v1/runs/42
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+              examples:
+                started:
+                  summary: щойно почався, дані постачальників ще не записано
+                  value:
+                    id: 42
+                    trigger: manual
+                    started_at: '2026-10-05T10:00:00+03:00'
+                    finished_at: null
+                    started_by: admin
+                    status: in_progress
+                    supplier_run_statuses:
+                      - { supplier: { id: 1, name: Альфа }, status: null, parsed_items_count: null, reason_code: null, error_reason: null, warnings: [], volume_acceptance_available: false }
+                      - { supplier: { id: 2, name: Бета }, status: null, parsed_items_count: null, reason_code: null, error_reason: null, warnings: [], volume_acceptance_available: false }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Запуск уже триває.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                run_in_progress:
+                  $ref: '#/components/examples/run_in_progress'
+
+  /runs/{run_id}:
+    parameters:
+      - $ref: '#/components/parameters/run_id'
+    get:
+      tags: [Автоматичне оновлення цін]
+      operationId: getRun
+      summary: Один запуск зі статусами постачальників
+      description: >-
+        Запуск: спосіб, час початку й завершення, логін запустившого, загальний статус і рядки
+        постачальників зі статусом, кількістю розібраних позицій, причиною помилки,
+        попередженнями й ознакою кнопки «прийняти новий обсяг» (REQ-F-033). Рядки — за назвою
+        постачальника. Роль — адмін.
+      x-req-ids: [REQ-F-024, REQ-F-025, REQ-F-026, REQ-F-030, REQ-F-031, REQ-F-032, REQ-F-033, REQ-F-060, REQ-F-061, REQ-F-062]
+      x-bdd: [BDD-001, BDD-002, BDD-066, BDD-069]
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Запуск.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+              examples:
+                in_progress:
+                  summary: запуск триває; дані Альфи записано, Бети — ні (BDD-069)
+                  value:
+                    id: 42
+                    trigger: manual
+                    started_at: '2026-10-05T10:00:00+03:00'
+                    finished_at: null
+                    started_by: admin
+                    status: in_progress
+                    supplier_run_statuses:
+                      - { supplier: { id: 1, name: Альфа }, status: success, parsed_items_count: 100, reason_code: null, error_reason: null, warnings: [], volume_acceptance_available: false }
+                      - { supplier: { id: 2, name: Бета }, status: null, parsed_items_count: null, reason_code: null, error_reason: null, warnings: [], volume_acceptance_available: false }
+                partial:
+                  summary: «частково» — помилка, неповний обхід, попередження
+                  value:
+                    id: 41
+                    trigger: scheduled
+                    started_at: '2026-10-05T03:30:05+03:00'
+                    finished_at: '2026-10-05T03:31:40+03:00'
+                    started_by: null
+                    status: partial
+                    supplier_run_statuses:
+                      - supplier: { id: 1, name: Альфа }
+                        status: success
+                        parsed_items_count: 99
+                        reason_code: null
+                        error_reason: null
+                        warnings:
+                          - { kind: duplicate_sku, sku: А-5 }
+                          - { kind: unparsed_row, sku: null }
+                        volume_acceptance_available: false
+                      - { supplier: { id: 2, name: Бета }, status: error, parsed_items_count: null, reason_code: unavailable, error_reason: сторінка недоступна, warnings: [], volume_acceptance_available: false }
+                      - supplier: { id: 3, name: Гама }
+                        status: partial
+                        parsed_items_count: 79
+                        reason_code: null
+                        error_reason: null
+                        warnings:
+                          - { kind: unit_mismatch, sku: В-2 }
+                          - { kind: non_positive_price, sku: В-7 }
+                        volume_acceptance_available: true
+                timeout:
+                  summary: помилка — перевищено час очікування (REQ-F-026)
+                  value:
+                    id: 40
+                    trigger: scheduled
+                    started_at: '2026-10-04T03:30:02+03:00'
+                    finished_at: '2026-10-04T03:31:05+03:00'
+                    started_by: null
+                    status: error
+                    supplier_run_statuses:
+                      - { supplier: { id: 1, name: Альфа }, status: error, parsed_items_count: null, reason_code: timeout, error_reason: перевищено час очікування 30 с, warnings: [], volume_acceptance_available: false }
+                      - { supplier: { id: 2, name: Бета }, status: error, parsed_items_count: null, reason_code: unparsable, error_reason: сторінку не розібрано, warnings: [], volume_acceptance_available: false }
+                interrupted:
+                  summary: перерваний запуск (REQ-F-024, BDD-066)
+                  value:
+                    id: 39
+                    trigger: manual
+                    started_at: '2026-10-03T10:00:00+03:00'
+                    finished_at: null
+                    started_by: admin
+                    status: interrupted
+                    supplier_run_statuses:
+                      - { supplier: { id: 1, name: Альфа }, status: success, parsed_items_count: 100, reason_code: null, error_reason: null, warnings: [], volume_acceptance_available: false }
+                      - { supplier: { id: 2, name: Бета }, status: not_finished, parsed_items_count: null, reason_code: null, error_reason: null, warnings: [], volume_acceptance_available: false }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /run-log-entries:
+    get:
+      tags: [Автоматичне оновлення цін]
+      operationId: listRunLogEntries
+      summary: Журнал оновлень
+      description: >-
+        Записи журналу від новіших до старіших (REQ-F-057): запуски (зокрема той, що триває),
+        записи «пропущено», «немає активних постачальників» і прийняття нового обсягу
+        (REQ-F-033). Записи не видаляються (REQ-NF-019). Роль — адмін.
+      x-req-ids: [REQ-F-018, REQ-F-022, REQ-F-023, REQ-F-031, REQ-F-032, REQ-F-033, REQ-F-057, REQ-F-063, REQ-NF-019]
+      x-bdd: [BDD-001, BDD-007, BDD-009, BDD-043, BDD-066, BDD-069]
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+      responses:
+        '200':
+          description: Сторінка записів журналу.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunLogEntryPage'
+              examples:
+                four_kinds:
+                  summary: записи чотирьох видів
+                  value:
+                    items:
+                      - kind: volume_acceptance
+                        occurred_at: '2026-10-06T09:15:00+03:00'
+                        trigger: null
+                        run: null
+                        volume_acceptance: { id: 7, run_id: 41, supplier: { id: 3, name: Гама }, accepted_by: admin, accepted_at: '2026-10-06T09:15:00+03:00', volume_baseline: 79 }
+                      - kind: skipped
+                        occurred_at: '2026-10-06T03:30:00+03:00'
+                        trigger: null
+                        run: null
+                        volume_acceptance: null
+                      - kind: run
+                        occurred_at: '2026-10-06T03:25:00+03:00'
+                        trigger: null
+                        run:
+                          id: 43
+                          trigger: manual
+                          started_at: '2026-10-06T03:25:00+03:00'
+                          finished_at: '2026-10-06T03:33:10+03:00'
+                          started_by: admin
+                          status: success
+                          supplier_run_statuses:
+                            - { supplier: { id: 1, name: Альфа }, status: success, parsed_items_count: 100, reason_code: null, error_reason: null, warnings: [], volume_acceptance_available: false }
+                        volume_acceptance: null
+                      - kind: no_active_suppliers
+                        occurred_at: '2026-10-02T03:30:00+03:00'
+                        trigger: scheduled
+                        run: null
+                        volume_acceptance: null
+                    page: 1
+                    page_size: 50
+                    total_items: 4
+                    total_pages: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /volume-acceptances:
+    post:
+      tags: [Автоматичне оновлення цін]
+      operationId: createVolumeAcceptance
+      summary: Прийняти новий обсяг постачальника
+      description: >-
+        Робить кількість розібраних позицій постачальника в цьому запуску новою базою обсягу
+        (REQ-F-031). Можливо лише для останнього запуску постачальника, у якому він має статус
+        «частково»; інакше — 409. Журнал фіксує, хто і коли прийняв обсяг. Роль — адмін.
+      x-req-ids: [REQ-F-031, REQ-F-047, REQ-F-052]
+      x-bdd: [BDD-007]
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VolumeAcceptanceCreate'
+            examples:
+              gamma_run_41:
+                summary: прийняти обсяг Гами в запуску 41
+                value: { run_id: 41, supplier_id: 3 }
+      responses:
+        '201':
+          description: Новий обсяг прийнято.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VolumeAcceptance'
+              examples:
+                accepted:
+                  summary: база обсягу — 79 позицій
+                  value: { id: 7, run_id: 41, supplier: { id: 3, name: Гама }, accepted_by: admin, accepted_at: '2026-10-06T09:15:00+03:00', volume_baseline: 79 }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          description: Тіло запиту некоректне.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+              examples:
+                validation_failed:
+                  $ref: '#/components/examples/validation_failed_volume_acceptance_required'
+                validation_failed_reference_not_found:
+                  $ref: '#/components/examples/validation_failed_run_not_found'
+                validation_failed_malformed_json:
+                  $ref: '#/components/examples/validation_failed_malformed_json'
+        '409':
+          description: Прийняти обсяг у цьому запуску не можна.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                volume_acceptance_unavailable:
+                  $ref: '#/components/examples/volume_acceptance_unavailable'
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: spm_session
+      description: >-
+        Cookie сесії, яку видає `POST /sessions`; атрибут `SameSite=Lax`. Та сама сесія, що й у
+        вебінтерфейсі (REQ-NF-031).
+
+  parameters:
+    page:
+      name: page
+      in: query
+      required: false
+      description: >-
+        Номер сторінки від 1; без параметра — перша. Номер за межами — 200 з порожнім `items`.
+        Сторінка — 50 записів (REQ-F-057).
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+      example: 1
+    supplier_id:
+      name: supplier_id
+      in: path
+      required: true
+      description: Ідентифікатор постачальника.
+      schema:
+        type: integer
+      example: 1
+    material_id:
+      name: material_id
+      in: path
+      required: true
+      description: Ідентифікатор матеріалу.
+      schema:
+        type: integer
+      example: 1
+    supplier_item_id:
+      name: supplier_item_id
+      in: path
+      required: true
+      description: Ідентифікатор позиції постачальника.
+      schema:
+        type: integer
+      example: 21
+    run_id:
+      name: run_id
+      in: path
+      required: true
+      description: Ідентифікатор запуску.
+      schema:
+        type: integer
+      example: 42
+
+  responses:
+    Unauthorized:
+      description: Запит без сесії або після 8 годин бездіяльності (REQ-NF-031, REQ-NF-021).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            unauthenticated:
+              $ref: '#/components/examples/unauthenticated'
+    Forbidden:
+      description: >-
+        Менеджер звертається до операції адміністратора; стан системи не змінюється (REQ-F-003,
+        REQ-F-005, REQ-NF-031).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            forbidden:
+              $ref: '#/components/examples/forbidden'
+    NotFound:
+      description: Ресурсу з ідентифікатором зі шляху немає, у позиції немає прив'язки або адреса невідома.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            not_found:
+              $ref: '#/components/examples/not_found'
+    MethodNotAllowed:
+      description: >-
+        Метод не підтримується адресою, зокрема DELETE на адресах постачальників і матеріалів
+        (REQ-F-010, REQ-NF-031). Стосується методів, яких у контракті немає.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            method_not_allowed:
+              $ref: '#/components/examples/method_not_allowed'
+    UnsupportedMediaType:
+      description: 'Запит з тілом без `Content-Type: application/json`.'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            unsupported_media_type:
+              $ref: '#/components/examples/unsupported_media_type'
+    ValidationFailed:
+      description: Запит некоректний; подробиці — в `errors`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ValidationProblem'
+          examples:
+            validation_failed:
+              $ref: '#/components/examples/validation_failed_page_invalid'
+    Conflict:
+      description: >-
+        Запит коректний, але суперечить поточному стану системи. Операції наводять свої
+        приклади `code`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            supplier_name_taken:
+              $ref: '#/components/examples/supplier_name_taken'
+            material_name_taken:
+              $ref: '#/components/examples/material_name_taken'
+            unit_locked:
+              $ref: '#/components/examples/unit_locked'
+            link_units_differ:
+              $ref: '#/components/examples/link_units_differ'
+            material_supplier_already_linked:
+              $ref: '#/components/examples/material_supplier_already_linked'
+            material_inactive:
+              $ref: '#/components/examples/material_inactive'
+            run_in_progress:
+              $ref: '#/components/examples/run_in_progress'
+            volume_acceptance_unavailable:
+              $ref: '#/components/examples/volume_acceptance_unavailable'
+
+  examples:
+    unauthenticated:
+      summary: немає сесії
+      value: { type: about:blank, title: Неавторизовано, status: 401, detail: Потрібно увійти в систему., code: unauthenticated }
+    invalid_credentials:
+      summary: неправильні логін або пароль
+      value: { type: about:blank, title: Неавторизовано, status: 401, detail: Неправильний логін або пароль., code: invalid_credentials }
+    forbidden:
+      summary: немає доступу (BDD-068)
+      value: { type: about:blank, title: Заборонено, status: 403, detail: немає доступу, code: forbidden }
+    not_found:
+      summary: ресурс не знайдено
+      value: { type: about:blank, title: Не знайдено, status: 404, detail: Ресурс не знайдено., code: not_found }
+    method_not_allowed:
+      summary: DELETE на адресі постачальника
+      value: { type: about:blank, title: Метод не дозволено, status: 405, detail: Метод DELETE не підтримується для цієї адреси., code: method_not_allowed }
+    unsupported_media_type:
+      summary: тіло не в JSON
+      value: { type: about:blank, title: Непідтримуваний тип даних, status: 415, detail: 'Запит має бути у форматі JSON (Content-Type: application/json).', code: unsupported_media_type }
+    validation_failed_login_required:
+      summary: логін не вказано
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: login, code: required, detail: Поле обов'язкове. }
+    validation_failed_name_required:
+      summary: порожня назва (REQ-F-007, REQ-F-008)
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: name, code: required, detail: Поле обов'язкове. }
+    validation_failed_unit_required:
+      summary: порожня одиниця виміру (REQ-F-008)
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: unit, code: required, detail: Поле обов'язкове. }
+    validation_failed_catalog_url_invalid:
+      summary: адреса каталогу «catalog.html» (REQ-F-007)
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: catalog_url, code: catalog_url_invalid, detail: Адреса каталогу має бути абсолютною адресою http або https. }
+    validation_failed_parser_unknown:
+      summary: розбирача немає в списку наявних
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: parser, code: parser_unknown, detail: Такого розбирача немає в списку наявних. }
+    validation_failed_unknown_field:
+      summary: невідоме поле в тілі
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: colour, code: unknown_field, detail: Невідоме поле. }
+    validation_failed_read_only_field:
+      summary: поле лише для читання `last_update_date`
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: last_update_date, code: read_only_field, detail: Поле лише для читання. }
+    validation_failed_read_only_field_linked_items_count:
+      summary: поле лише для читання `linked_items_count`
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: linked_items_count, code: read_only_field, detail: Поле лише для читання. }
+    validation_failed_invalid_type:
+      summary: '`active` не логічного типу'
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: active, code: invalid_type, detail: Значення має неправильний тип. }
+    validation_failed_malformed_json:
+      summary: тіло не є коректним JSON
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: null, code: malformed_json, detail: Тіло запиту не є коректним JSON. }
+    validation_failed_material_id_required:
+      summary: матеріал не вказано
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: material_id, code: required, detail: Поле обов'язкове. }
+    validation_failed_material_not_found:
+      summary: матеріалу з таким ідентифікатором немає
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: material_id, code: reference_not_found, detail: Запису з таким ідентифікатором немає. }
+    validation_failed_volume_acceptance_required:
+      summary: запуск і постачальника не вказано
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: run_id, code: required, detail: Поле обов'язкове. }
+          - { field: supplier_id, code: required, detail: Поле обов'язкове. }
+    validation_failed_run_not_found:
+      summary: запуску з таким ідентифікатором немає
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: run_id, code: reference_not_found, detail: Запису з таким ідентифікатором немає. }
+    validation_failed_settings:
+      summary: поріг і час некоректні одночасно (REQ-F-019)
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: notification_threshold, code: notification_threshold_out_of_range, detail: 'Поріг має бути від 0,1 до 50 % з кроком 0,1.' }
+          - { field: update_time, code: update_time_invalid, detail: 'Час оновлення має формат ГГ:ХХ від 00:00 до 23:59.' }
+    validation_failed_update_time_invalid:
+      summary: час «3:30» (REQ-F-019)
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: update_time, code: update_time_invalid, detail: 'Час оновлення має формат ГГ:ХХ від 00:00 до 23:59.' }
+    validation_failed_threshold_out_of_range:
+      summary: поріг 50,1 % (REQ-F-019)
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: notification_threshold, code: notification_threshold_out_of_range, detail: 'Поріг має бути від 0,1 до 50 % з кроком 0,1.' }
+    validation_failed_period_required:
+      summary: період не вказано
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: period, code: required, detail: Поле обов'язкове. }
+    validation_failed_period_invalid:
+      summary: невідомий період
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: period, code: period_invalid, detail: 'Період має бути одним із: last_7_days, last_30_days, all.' }
+    validation_failed_kind_invalid:
+      summary: невідомий вид події
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: kind, code: kind_invalid, detail: 'Вид події має бути одним із: price_change, appeared, disappeared.' }
+    validation_failed_page_invalid:
+      summary: номер сторінки 0
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: page, code: page_invalid, detail: Номер сторінки має бути цілим числом від 1. }
+    supplier_name_taken:
+      summary: назва «альфа», коли вже є «Альфа» (REQ-F-007)
+      value:
+        type: about:blank
+        title: Конфлікт
+        status: 409
+        detail: Постачальник з назвою «альфа» уже є.
+        code: supplier_name_taken
+        errors:
+          - { field: name, code: supplier_name_taken, detail: Постачальник з назвою «альфа» уже є. }
+    material_name_taken:
+      summary: найменування «лдсп білий 18 мм», коли вже є «ЛДСП Білий 18 мм» (REQ-F-008)
+      value:
+        type: about:blank
+        title: Конфлікт
+        status: 409
+        detail: Матеріал з найменуванням «лдсп білий 18 мм» уже є.
+        code: material_name_taken
+        errors:
+          - { field: name, code: material_name_taken, detail: Матеріал з найменуванням «лдсп білий 18 мм» уже є. }
+    unit_locked:
+      summary: одиниця матеріалу з цінами або прив'язками (REQ-F-009)
+      value:
+        type: about:blank
+        title: Конфлікт
+        status: 409
+        detail: 'одиницю не можна змінити: є ціни або прив''язки'
+        code: unit_locked
+        errors:
+          - { field: unit, code: unit_locked, detail: 'одиницю не можна змінити: є ціни або прив''язки' }
+    link_units_differ:
+      summary: «м.п.» і «п.м.» (REQ-F-014)
+      value: { type: about:blank, title: Конфлікт, status: 409, detail: Одиниця позиції «м.п.» не збігається з одиницею матеріалу «п.м.»., code: link_units_differ }
+    material_supplier_already_linked:
+      summary: до матеріалу вже прив'язано А-1 (REQ-F-048)
+      value: { type: about:blank, title: Конфлікт, status: 409, detail: До матеріалу вже прив'язано позицію А-1 цього постачальника., code: material_supplier_already_linked }
+    material_inactive:
+      summary: матеріал деактивовано (REQ-F-050)
+      value: { type: about:blank, title: Конфлікт, status: 409, detail: Матеріал «М2» деактивовано. Спершу активуйте його., code: material_inactive }
+    run_in_progress:
+      summary: оновлення вже триває (REQ-F-021)
+      value: { type: about:blank, title: Конфлікт, status: 409, detail: оновлення вже триває, code: run_in_progress }
+    volume_acceptance_unavailable:
+      summary: запуск уже не останній або статус не «частково» (REQ-F-031)
+      value: { type: about:blank, title: Конфлікт, status: 409, detail: Новий обсяг можна прийняти лише в останньому запуску постачальника зі статусом «частково»., code: volume_acceptance_unavailable }
+
+  schemas:
+    Price:
+      type: string
+      pattern: '^\d+\.\d{2}$'
+      description: Сума в гривнях — рядок із крапкою і двома знаками.
+      examples: ['1250.50']
+    Percent:
+      type: number
+      description: Відсотки, округлені до 0,1 (половина від нуля), без «+».
+      examples: [1.2]
+    PageMeta:
+      type: object
+      required: [page, page_size, total_items, total_pages]
+      properties:
+        page:
+          type: integer
+          minimum: 1
+          description: Номер сторінки.
+        page_size:
+          type: integer
+          const: 50
+          description: Розмір сторінки (REQ-F-057).
+        total_items:
+          type: integer
+          minimum: 0
+          description: Кількість записів у списку.
+        total_pages:
+          type: integer
+          minimum: 0
+          description: Кількість сторінок.
+
+    Role:
+      type: string
+      enum: [manager, admin]
+      description: Роль облікового запису (Д.10).
+    Account:
+      type: object
+      required: [login, role]
+      properties:
+        login:
+          type: string
+          description: Логін у тому вигляді, у якому його збережено (REQ-F-071).
+        role:
+          $ref: '#/components/schemas/Role'
+    Session:
+      type: object
+      required: [account]
+      properties:
+        account:
+          $ref: '#/components/schemas/Account'
+    SessionCreate:
+      type: object
+      additionalProperties: false
+      required: [login, password]
+      properties:
+        login:
+          type: string
+          minLength: 1
+          description: Логін; звіряється без урахування регістру (REQ-F-001).
+        password:
+          type: string
+          minLength: 1
+          description: Пароль.
+
+    SupplierRef:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          description: Назва постачальника.
+    SupplierRefWithActive:
+      type: object
+      required: [id, name, active]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        active:
+          type: boolean
+          description: '`false` — позначка «постачальник неактивний» (REQ-F-011).'
+    Supplier:
+      type: object
+      additionalProperties: false
+      required: [id, name, catalog_url, parser, active, last_update_date]
+      description: Постачальник для адміністратора (Д.1).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          description: Назва; унікальна без урахування регістру.
+        catalog_url:
+          type: string
+          description: Адреса каталогу — абсолютна адреса http або https.
+        parser:
+          type: string
+          description: Розбирач — одне зі значень `GET /parsers`.
+        active:
+          type: boolean
+        last_update_date:
+          type: [string, 'null']
+          format: date
+          readOnly: true
+          description: Дата останнього оновлення (REQ-F-034); `null` — «ще не оновлювався».
+    SupplierForManager:
+      type: object
+      additionalProperties: false
+      required: [id, name, active, last_update_date]
+      description: Постачальник для менеджера — без адреси каталогу і розбирача (REQ-F-070).
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        active:
+          type: boolean
+        last_update_date:
+          type: [string, 'null']
+          format: date
+    SupplierCreate:
+      type: object
+      additionalProperties: false
+      required: [name, catalog_url, parser, active]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        catalog_url:
+          type: string
+          pattern: '^https?://'
+        parser:
+          type: string
+        active:
+          type: boolean
+    SupplierUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+        catalog_url:
+          type: string
+          pattern: '^https?://'
+        parser:
+          type: string
+        active:
+          type: boolean
+    SupplierPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                oneOf:
+                  - $ref: '#/components/schemas/Supplier'
+                  - $ref: '#/components/schemas/SupplierForManager'
+    ParserList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          description: Назви наявних розбирачів.
+          items:
+            type: string
+
+    MaterialRef:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          description: Найменування матеріалу.
+    MaterialRefWithActive:
+      type: object
+      required: [id, name, active]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        active:
+          type: boolean
+          description: '`false` — «матеріал деактивовано» (REQ-F-049).'
+    MaterialRefWithUnit:
+      type: object
+      required: [id, name, unit]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        unit:
+          type: string
+          description: Одиниця матеріалу (REQ-F-068).
+    Material:
+      type: object
+      required: [id, name, unit, active, linked_items_count]
+      description: Матеріал (Д.2).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          description: Найменування; унікальне без урахування регістру.
+        unit:
+          type: string
+          description: Одиниця виміру.
+        active:
+          type: boolean
+        linked_items_count:
+          type: integer
+          minimum: 0
+          readOnly: true
+          description: Кількість прив'язаних позицій.
+    MaterialCreate:
+      type: object
+      additionalProperties: false
+      required: [name, unit, active]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        unit:
+          type: string
+          minLength: 1
+        active:
+          type: boolean
+    MaterialUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+        unit:
+          type: string
+          minLength: 1
+        active:
+          type: boolean
+    MaterialPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Material'
+
+    SupplierItem:
+      type: object
+      required: [id, supplier, sku, name, unit]
+      description: Позиція постачальника (Д.3) у прив'язці.
+      properties:
+        id:
+          type: integer
+        supplier:
+          $ref: '#/components/schemas/SupplierRef'
+        sku:
+          type: string
+          description: Артикул.
+        name:
+          type: string
+          description: Найменування з останньої сторінки.
+        unit:
+          type: string
+          description: Одиниця з останньої сторінки.
+    UnlinkedSupplierItem:
+      type: object
+      required: [id, supplier, sku, name, unit, last_seen_date]
+      properties:
+        id:
+          type: integer
+        supplier:
+          $ref: '#/components/schemas/SupplierRefWithActive'
+        sku:
+          type: string
+        name:
+          type: string
+        unit:
+          type: string
+        last_seen_date:
+          type: string
+          format: date
+          description: Дата, коли позицію бачили востаннє (REQ-F-012).
+    AttentionSupplierItem:
+      type: object
+      required: [id, supplier, sku, name, unit]
+      properties:
+        id:
+          type: integer
+        supplier:
+          $ref: '#/components/schemas/SupplierRefWithActive'
+        sku:
+          type: string
+        name:
+          type: string
+        unit:
+          type: string
+          description: Одиниця на сторінці (REQ-F-068).
+    Link:
+      type: object
+      required: [supplier_item, material]
+      description: Прив'язка (Д.4).
+      properties:
+        supplier_item:
+          $ref: '#/components/schemas/SupplierItem'
+        material:
+          $ref: '#/components/schemas/MaterialRef'
+    LinkPut:
+      type: object
+      additionalProperties: false
+      required: [material_id]
+      properties:
+        material_id:
+          type: integer
+          description: Матеріал, до якого прив'язати позицію.
+    LinkPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Link'
+    UnlinkedItem:
+      type: object
+      required: [supplier_item]
+      properties:
+        supplier_item:
+          $ref: '#/components/schemas/UnlinkedSupplierItem'
+    UnlinkedItemPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/UnlinkedItem'
+    AttentionItem:
+      type: object
+      required: [supplier_item, material, last_unit_mismatch_date]
+      properties:
+        supplier_item:
+          $ref: '#/components/schemas/AttentionSupplierItem'
+        material:
+          $ref: '#/components/schemas/MaterialRefWithUnit'
+        last_unit_mismatch_date:
+          type: string
+          format: date
+          description: Дата останньої ціни дня з позначкою «одиниця не збігається» (REQ-F-068).
+    AttentionItemPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/AttentionItem'
+
+    DailyPrice:
+      type: object
+      required: [price, date, unit_mismatch]
+      description: Ціна дня (Д.5).
+      properties:
+        price:
+          $ref: '#/components/schemas/Price'
+        date:
+          type: string
+          format: date
+        unit_mismatch:
+          type: boolean
+          description: Позначка «одиниця не збігається».
+    ComparisonListRow:
+      type: object
+      required: [material, cheapest_supplier, price]
+      properties:
+        material:
+          $ref: '#/components/schemas/MaterialRef'
+        cheapest_supplier:
+          description: Найдешевший постачальник; `null` — придатної ціни немає.
+          oneOf:
+            - $ref: '#/components/schemas/SupplierRef'
+            - type: 'null'
+        price:
+          description: Його ціна; `null` — придатної ціни немає.
+          oneOf:
+            - $ref: '#/components/schemas/Price'
+            - type: 'null'
+    ComparisonListPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/ComparisonListRow'
+    DifferenceFromCheapest:
+      type: object
+      required: [percent, amount]
+      properties:
+        percent:
+          $ref: '#/components/schemas/Percent'
+        amount:
+          $ref: '#/components/schemas/Price'
+    MaterialComparisonRow:
+      type: object
+      required: [supplier, daily_price, stale, cheapest, difference_from_cheapest]
+      properties:
+        supplier:
+          $ref: '#/components/schemas/SupplierRef'
+        daily_price:
+          description: Остання відома ціна; `null` — «ціни ще немає».
+          oneOf:
+            - $ref: '#/components/schemas/DailyPrice'
+            - type: 'null'
+        stale:
+          type: [boolean, 'null']
+          description: Позначка «застаріла» (REQ-F-038); `null`, коли ціни немає.
+        cheapest:
+          type: boolean
+          description: Рядок із мінімальною придатною ціною.
+        difference_from_cheapest:
+          description: Різниця з найдешевшою; `null` — «—» (REQ-F-036).
+          oneOf:
+            - $ref: '#/components/schemas/DifferenceFromCheapest'
+            - type: 'null'
+    MaterialComparison:
+      type: object
+      required: [material, items]
+      properties:
+        material:
+          $ref: '#/components/schemas/MaterialRefWithActive'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaterialComparisonRow'
+
+    HistoryPeriod:
+      type: string
+      enum: [last_7_days, last_30_days, all]
+      description: Період історії (REQ-F-040).
+    PriceHistoryRow:
+      type: object
+      required: [date, supplier, price, unit_mismatch, effective_at_period_start]
+      properties:
+        date:
+          type: string
+          format: date
+          description: Дата встановлення ціни.
+        supplier:
+          $ref: '#/components/schemas/SupplierRef'
+        price:
+          $ref: '#/components/schemas/Price'
+        unit_mismatch:
+          type: boolean
+        effective_at_period_start:
+          type: boolean
+          description: Позначка «чинна на початок періоду».
+    PriceHistory:
+      type: object
+      required: [material, period, items]
+      properties:
+        material:
+          $ref: '#/components/schemas/MaterialRefWithActive'
+        period:
+          $ref: '#/components/schemas/HistoryPeriod'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriceHistoryRow'
+
+    EventKind:
+      type: string
+      enum: [price_change, appeared, disappeared]
+      description: Вид події (Д.6).
+    Event:
+      type: object
+      required: [id, kind, date, created_at, material, supplier, old_price, new_price, change_percent, price]
+      description: Подія стрічки змін (Д.6).
+      properties:
+        id:
+          type: integer
+        kind:
+          $ref: '#/components/schemas/EventKind'
+        date:
+          type: string
+          format: date
+          description: Дата ціни дня — дата запуску, що створив подію.
+        created_at:
+          type: string
+          format: date-time
+        material:
+          $ref: '#/components/schemas/MaterialRef'
+        supplier:
+          $ref: '#/components/schemas/SupplierRef'
+        old_price:
+          description: Стара ціна (база стрічки); лише для `price_change`.
+          oneOf:
+            - $ref: '#/components/schemas/Price'
+            - type: 'null'
+        new_price:
+          description: Нова ціна; лише для `price_change`.
+          oneOf:
+            - $ref: '#/components/schemas/Price'
+            - type: 'null'
+        change_percent:
+          type: [number, 'null']
+          description: Зміна у відсотках, від'ємна — з мінусом; лише для `price_change`.
+        price:
+          description: Ціна; лише для `appeared`.
+          oneOf:
+            - $ref: '#/components/schemas/Price'
+            - type: 'null'
+    EventPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Event'
+
+    SupplierUpdateStatus:
+      type: object
+      required: [supplier, last_update_date]
+      properties:
+        supplier:
+          $ref: '#/components/schemas/SupplierRef'
+        last_update_date:
+          type: [string, 'null']
+          format: date
+          description: '`null` — «ще не оновлювався».'
+    SupplierUpdateStatusPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/SupplierUpdateStatus'
+
+    Settings:
+      type: object
+      required: [update_time, notification_threshold]
+      description: Налаштування (Д.9).
+      properties:
+        update_time:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          description: Час щоденного оновлення за київським часом, ГГ:ХХ.
+        notification_threshold:
+          type: number
+          minimum: 0.1
+          maximum: 50
+          multipleOf: 0.1
+          description: Поріг сповіщень, %.
+    SettingsUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        update_time:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+        notification_threshold:
+          type: number
+          minimum: 0.1
+          maximum: 50
+          multipleOf: 0.1
+
+    RunTrigger:
+      type: string
+      enum: [scheduled, manual, catch_up]
+      description: Спосіб запуску (Д.7).
+    RunStatus:
+      type: string
+      enum: [success, partial, error, interrupted, in_progress]
+      description: Загальний статус запуску (REQ-F-032).
+    SupplierRunStatusValue:
+      type: [string, 'null']
+      enum: [success, partial, error, not_finished, null]
+      description: Статус постачальника в запуску; `null` — у запуску, що триває, дані ще не записано.
+    ReasonCode:
+      type: [string, 'null']
+      enum: [unavailable, timeout, unparsable, write_failed, null]
+      description: Причина помилки постачальника; лише для `error`.
+    RunWarning:
+      type: object
+      required: [kind, sku]
+      properties:
+        kind:
+          type: string
+          enum: [unit_mismatch, duplicate_sku, unparsed_row, non_positive_price]
+          description: Вид попередження (Д.8).
+        sku:
+          type: [string, 'null']
+          description: Артикул; `null` для рядка без артикула.
+    SupplierRunStatus:
+      type: object
+      required: [supplier, status, parsed_items_count, reason_code, error_reason, warnings, volume_acceptance_available]
+      description: Статус постачальника в запуску (Д.8).
+      properties:
+        supplier:
+          $ref: '#/components/schemas/SupplierRef'
+        status:
+          $ref: '#/components/schemas/SupplierRunStatusValue'
+        parsed_items_count:
+          type: [integer, 'null']
+          description: '`null` для `error`, `not_finished` і без статусу.'
+        reason_code:
+          $ref: '#/components/schemas/ReasonCode'
+        error_reason:
+          type: [string, 'null']
+          description: Текст причини, як у журналі.
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunWarning'
+        volume_acceptance_available:
+          type: boolean
+          description: Є кнопка «прийняти новий обсяг» (REQ-F-031).
+    Run:
+      type: object
+      required: [id, trigger, started_at, finished_at, started_by, status, supplier_run_statuses]
+      description: Запуск (Д.7).
+      properties:
+        id:
+          type: integer
+        trigger:
+          $ref: '#/components/schemas/RunTrigger'
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: [string, 'null']
+          format: date-time
+          description: '`null` для `in_progress` і `interrupted`.'
+        started_by:
+          type: [string, 'null']
+          description: Логін адміністратора; лише для `manual`.
+        status:
+          $ref: '#/components/schemas/RunStatus'
+        supplier_run_statuses:
+          type: array
+          description: Рядки постачальників за назвою.
+          items:
+            $ref: '#/components/schemas/SupplierRunStatus'
+
+    VolumeAcceptance:
+      type: object
+      required: [id, run_id, supplier, accepted_by, accepted_at, volume_baseline]
+      description: Прийняття нового обсягу (Д.7а).
+      properties:
+        id:
+          type: integer
+        run_id:
+          type: integer
+        supplier:
+          $ref: '#/components/schemas/SupplierRef'
+        accepted_by:
+          type: string
+          description: Логін адміністратора.
+        accepted_at:
+          type: string
+          format: date-time
+        volume_baseline:
+          type: integer
+          minimum: 1
+          description: Прийнята кількість позицій — нова база обсягу.
+    VolumeAcceptanceCreate:
+      type: object
+      additionalProperties: false
+      required: [run_id, supplier_id]
+      properties:
+        run_id:
+          type: integer
+        supplier_id:
+          type: integer
+
+    RunLogEntry:
+      type: object
+      required: [kind, occurred_at, trigger, run, volume_acceptance]
+      description: Запис журналу оновлень (Д.7, Д.7а).
+      properties:
+        kind:
+          type: string
+          enum: [run, skipped, no_active_suppliers, volume_acceptance]
+        occurred_at:
+          type: string
+          format: date-time
+          description: Час запису; для `run` — час початку, для `volume_acceptance` — час прийняття.
+        trigger:
+          type: [string, 'null']
+          enum: [scheduled, manual, null]
+          description: Привід запису «немає активних постачальників»; для інших видів — `null`.
+        run:
+          description: Запуск; лише для `run`.
+          oneOf:
+            - $ref: '#/components/schemas/Run'
+            - type: 'null'
+        volume_acceptance:
+          description: Прийняття; лише для `volume_acceptance`.
+          oneOf:
+            - $ref: '#/components/schemas/VolumeAcceptance'
+            - type: 'null'
+    RunLogEntryPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/RunLogEntry'
+
+    ProblemCode:
+      type: string
+      enum:
+        - unauthenticated
+        - invalid_credentials
+        - forbidden
+        - not_found
+        - method_not_allowed
+        - unsupported_media_type
+        - validation_failed
+        - supplier_name_taken
+        - material_name_taken
+        - unit_locked
+        - link_units_differ
+        - material_supplier_already_linked
+        - material_inactive
+        - run_in_progress
+        - volume_acceptance_unavailable
+      description: Машинний код помилки (docs/api/resources.md, розділ 4).
+    FieldError:
+      type: object
+      required: [field, code, detail]
+      properties:
+        field:
+          type: [string, 'null']
+          description: Поле чи параметр; `null` — усе тіло.
+        code:
+          type: string
+          enum:
+            - required
+            - invalid_type
+            - unknown_field
+            - read_only_field
+            - malformed_json
+            - catalog_url_invalid
+            - parser_unknown
+            - update_time_invalid
+            - notification_threshold_out_of_range
+            - reference_not_found
+            - period_invalid
+            - kind_invalid
+            - page_invalid
+            - supplier_name_taken
+            - material_name_taken
+            - unit_locked
+        detail:
+          type: string
+          description: Пояснення українською.
+    Problem:
+      type: object
+      required: [type, title, status, detail, code]
+      description: Модель помилок API — application/problem+json (RFC 9457).
+      properties:
+        type:
+          type: string
+          const: about:blank
+        title:
+          type: string
+          enum: [Неавторизовано, Заборонено, Не знайдено, Метод не дозволено, Конфлікт, Непідтримуваний тип даних, Необроблюваний вміст]
+          description: Українська назва статусу HTTP.
+        status:
+          type: integer
+          description: Код HTTP.
+        detail:
+          type: string
+          description: Пояснення українською.
+        code:
+          $ref: '#/components/schemas/ProblemCode'
+        errors:
+          type: array
+          description: Помилки полів; для конфліктів, пов'язаних з полем.
+          items:
+            $ref: '#/components/schemas/FieldError'
+    ValidationProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          required: [errors]
+          properties:
+            code:
+              const: validation_failed
+            status:
+              const: 422
