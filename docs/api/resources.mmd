@@ -1,0 +1,159 @@
+%% Зв'язки ресурсів REST API (чернетка, docs/api/resources.md, розділ 2).
+%% Підпис класу — адреса ресурсу або назва вкладеного ресурсу. Поля з * у цьому файлі
+%% запропоновано агентом (ПА-4); Mermaid показує їх курсивом без зірочки.
+%% <<embedded>> — ресурс без власної адреси, входить у відповідь іншого ресурсу.
+classDiagram
+    direction LR
+
+    class Session["/sessions"] {
+        <<resource>>
+        account
+    }
+    class Account["Account"] {
+        <<embedded>>
+        login*
+        role*
+    }
+    class Supplier["/suppliers"] {
+        <<resource>>
+        id*
+        name*
+        catalog_url
+        parser
+        active*
+        last_update_date*
+    }
+    class Parser["/parsers"] {
+        <<resource>>
+        parser
+    }
+    class Material["/materials"] {
+        <<resource>>
+        id*
+        name*
+        unit
+        active*
+        linked_items_count*
+    }
+    class SupplierItem["SupplierItem"] {
+        <<embedded>>
+        id*
+        sku
+        name*
+        unit
+        last_seen_date*
+    }
+    class Link["/links"] {
+        <<resource>>
+        id*
+        supplier_item
+        material
+    }
+    class UnlinkedItem["/unlinked-items"] {
+        <<resource>>
+        supplier_item
+    }
+    class AttentionItem["/attention-items"] {
+        <<resource>>
+        supplier_item
+        material
+        last_unit_mismatch_date*
+    }
+    class DailyPrice["DailyPrice"] {
+        <<embedded>>
+        price*
+        date*
+        unit_mismatch
+    }
+    class ComparisonList["/material-comparisons"] {
+        <<resource>>
+        material
+        cheapest_supplier
+        price*
+    }
+    class MaterialComparison["/material-comparisons/{material_id}"] {
+        <<resource>>
+        material
+        rows: supplier, daily_price, stale, cheapest*, difference_from_cheapest
+    }
+    class PriceHistory["/price-histories/{material_id}"] {
+        <<resource>>
+        material
+        period*
+        rows: date*, supplier, price*, unit_mismatch, effective_at_period_start*
+    }
+    class Event["/events"] {
+        <<resource>>
+        id*
+        kind*
+        date*
+        created_at*
+        old_price*
+        new_price*
+        change_percent*
+        price*
+    }
+    class SupplierUpdateStatus["/supplier-update-statuses"] {
+        <<resource>>
+        supplier
+        last_update_date*
+    }
+    class Settings["/settings"] {
+        <<resource>>
+        update_time*
+        notification_threshold
+    }
+    class Run["/runs"] {
+        <<resource>>
+        id*
+        trigger
+        started_at*
+        finished_at*
+        started_by*
+        status*
+    }
+    class SupplierRunStatus["SupplierRunStatus"] {
+        <<embedded>>
+        status*
+        parsed_items_count*
+        error_reason*
+        warnings*
+        volume_acceptance_available*
+    }
+    class VolumeAcceptance["/volume-acceptances"] {
+        <<resource>>
+        id*
+        run_id*
+        accepted_by*
+        accepted_at*
+        volume_baseline
+    }
+    class RunLog["/run-log"] {
+        <<resource>>
+        kind*
+    }
+
+    Session "1" --> "1" Account : відкрита для
+    Supplier "*" --> "1" Parser : розбирає
+    Supplier "1" *-- "*" SupplierItem : позиції
+    SupplierItem "1" -- "0..1" Link : прив'язка
+    Link "*" --> "1" Material : до матеріалу
+    UnlinkedItem ..> SupplierItem : позиція без прив'язки
+    AttentionItem ..> Link : прив'язка з unit_mismatch
+    SupplierItem "1" -- "*" DailyPrice : ціни дня
+    DailyPrice "*" --> "1" Material : записана для
+    ComparisonList ..> Material : рядок на активний матеріал
+    ComparisonList ..> Supplier : cheapest_supplier
+    MaterialComparison ..> Material
+    MaterialComparison ..> DailyPrice : остання відома ціна
+    PriceHistory ..> Material
+    PriceHistory ..> DailyPrice : зміни ціни
+    Event "*" --> "1" Material
+    Event "*" --> "1" Supplier
+    SupplierUpdateStatus ..> Supplier : активний постачальник
+    Run "1" *-- "*" SupplierRunStatus : статуси
+    SupplierRunStatus "*" --> "1" Supplier
+    VolumeAcceptance "*" --> "1" Run : запуск зі статусом «частково»
+    VolumeAcceptance "*" --> "1" Supplier
+    RunLog o-- "*" Run : записи
+    RunLog o-- "*" VolumeAcceptance : записи
