@@ -19,12 +19,19 @@ info:
     **Запити.** Запити з тілом (`POST`, `PUT`, `PATCH`) — лише з
     `Content-Type: application/json`, інакше 415. Запити без тіла (`POST /runs`, `DELETE`)
     заголовка не потребують. Невідоме поле або поле лише для читання в тілі — 422. Невідомі
-    параметри запиту ігноруються.
+    параметри запиту ігноруються. Ідентифікатор у шляху, що не є цілим числом
+    (`/suppliers/abc`), — 422 `validation_failed` з `errors[].code: invalid_type`.
 
-    **Відповідь 405.** Метод, якого адреса не має, отримує 405 `method_not_allowed`
-    (спільна відповідь `MethodNotAllowed`). Зокрема DELETE на адресах постачальників і
-    матеріалів: записи не видаляються, лише деактивуються через `PATCH` з `active: false`
-    (REQ-F-010). DELETE є лише для виходу і зняття прив'язки (Р-118).
+    **Відповідь 405.** Метод, якого адреса не має, отримує 405 `method_not_allowed` у моделі
+    помилок. Зокрема DELETE на адресах постачальників і матеріалів: записи не видаляються,
+    лише деактивуються через `PATCH` з `active: false` (REQ-F-010). DELETE є лише для виходу і
+    зняття прив'язки (Р-118). Таких методів у контракті немає, тому й операцій з відповіддю 405
+    у ньому немає. Приклад — DELETE на адресі постачальника:
+
+    ```json
+    {"type": "about:blank", "title": "Метод не дозволено", "status": 405,
+     "detail": "Метод DELETE не підтримується для цієї адреси.", "code": "method_not_allowed"}
+    ```
 
     **Значення.** Дата — `РРРР-ММ-ДД`; дата й час — ISO 8601 зі зсувом київського часу.
     Ціни й різниця в гривнях — рядок із крапкою і двома знаками (`"1250.50"`). Відсотки —
@@ -93,7 +100,7 @@ paths:
               description: Cookie сесії `spm_session` з атрибутом `SameSite=Lax`.
               schema:
                 type: string
-              example: spm_session=<значення>; SameSite=Lax
+              example: spm_session=3f9c2a7e; SameSite=Lax
           content:
             application/json:
               schema:
@@ -318,6 +325,15 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          description: Ідентифікатор у шляху некоректний.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+              examples:
+                validation_failed:
+                  $ref: '#/components/examples/validation_failed_supplier_id_invalid_type'
     patch:
       tags: [Ведення довідників]
       operationId: updateSupplier
@@ -363,7 +379,7 @@ paths:
         '415':
           $ref: '#/components/responses/UnsupportedMediaType'
         '422':
-          description: Тіло запиту некоректне.
+          description: Тіло запиту або ідентифікатор у шляху некоректні.
           content:
             application/problem+json:
               schema:
@@ -379,6 +395,8 @@ paths:
                   $ref: '#/components/examples/validation_failed_unknown_field'
                 validation_failed_malformed_json:
                   $ref: '#/components/examples/validation_failed_malformed_json'
+                validation_failed_invalid_type:
+                  $ref: '#/components/examples/validation_failed_supplier_id_invalid_type'
         '409':
           description: Назва постачальника вже є.
           content:
@@ -556,6 +574,15 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          description: Ідентифікатор у шляху некоректний.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+              examples:
+                validation_failed:
+                  $ref: '#/components/examples/validation_failed_material_id_invalid_type'
     patch:
       tags: [Ведення довідників]
       operationId: updateMaterial
@@ -602,7 +629,7 @@ paths:
         '415':
           $ref: '#/components/responses/UnsupportedMediaType'
         '422':
-          description: Тіло запиту некоректне.
+          description: Тіло запиту або ідентифікатор у шляху некоректні.
           content:
             application/problem+json:
               schema:
@@ -616,6 +643,8 @@ paths:
                   $ref: '#/components/examples/validation_failed_unknown_field'
                 validation_failed_malformed_json:
                   $ref: '#/components/examples/validation_failed_malformed_json'
+                validation_failed_invalid_type:
+                  $ref: '#/components/examples/validation_failed_material_id_invalid_type'
         '409':
           description: Зміна суперечить стану матеріалу.
           content:
@@ -672,7 +701,16 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
-          $ref: '#/components/responses/ValidationFailed'
+          description: Параметр запиту або ідентифікатор у шляху некоректні.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+              examples:
+                validation_failed:
+                  $ref: '#/components/examples/validation_failed_page_invalid'
+                validation_failed_invalid_type:
+                  $ref: '#/components/examples/validation_failed_material_id_invalid_type'
 
   /materials/{material_id}/price-history:
     parameters:
@@ -728,7 +766,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
-          description: Параметр `period` некоректний.
+          description: Параметр `period` або ідентифікатор у шляху некоректні.
           content:
             application/problem+json:
               schema:
@@ -738,6 +776,8 @@ paths:
                   $ref: '#/components/examples/validation_failed_period_required'
                 validation_failed_period_invalid:
                   $ref: '#/components/examples/validation_failed_period_invalid'
+                validation_failed_invalid_type:
+                  $ref: '#/components/examples/validation_failed_material_id_invalid_type'
 
   /unlinked-items:
     get:
@@ -888,7 +928,7 @@ paths:
         '415':
           $ref: '#/components/responses/UnsupportedMediaType'
         '422':
-          description: Тіло запиту некоректне.
+          description: Тіло запиту або ідентифікатор у шляху некоректні.
           content:
             application/problem+json:
               schema:
@@ -902,6 +942,8 @@ paths:
                   $ref: '#/components/examples/validation_failed_unknown_field'
                 validation_failed_malformed_json:
                   $ref: '#/components/examples/validation_failed_malformed_json'
+                validation_failed_invalid_type:
+                  $ref: '#/components/examples/validation_failed_supplier_item_id_invalid_type'
         '409':
           description: Прив'язка суперечить стану позиції чи матеріалу.
           content:
@@ -936,6 +978,15 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          description: Ідентифікатор у шляху некоректний.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+              examples:
+                validation_failed:
+                  $ref: '#/components/examples/validation_failed_supplier_item_id_invalid_type'
 
   /material-comparisons:
     get:
@@ -1046,6 +1097,15 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          description: Ідентифікатор у шляху некоректний.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+              examples:
+                validation_failed:
+                  $ref: '#/components/examples/validation_failed_material_id_invalid_type'
 
   /events:
     get:
@@ -1407,6 +1467,15 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          description: Ідентифікатор у шляху некоректний.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+              examples:
+                validation_failed:
+                  $ref: '#/components/examples/validation_failed_run_id_invalid_type'
 
   /run-log-entries:
     get:
@@ -1623,17 +1692,6 @@ components:
           examples:
             not_found:
               $ref: '#/components/examples/not_found'
-    MethodNotAllowed:
-      description: >-
-        Метод не підтримується адресою, зокрема DELETE на адресах постачальників і матеріалів
-        (REQ-F-010, REQ-NF-031). Стосується методів, яких у контракті немає.
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
-          examples:
-            method_not_allowed:
-              $ref: '#/components/examples/method_not_allowed'
     UnsupportedMediaType:
       description: 'Запит з тілом без `Content-Type: application/json`.'
       content:
@@ -1652,31 +1710,6 @@ components:
           examples:
             validation_failed:
               $ref: '#/components/examples/validation_failed_page_invalid'
-    Conflict:
-      description: >-
-        Запит коректний, але суперечить поточному стану системи. Операції наводять свої
-        приклади `code`.
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
-          examples:
-            supplier_name_taken:
-              $ref: '#/components/examples/supplier_name_taken'
-            material_name_taken:
-              $ref: '#/components/examples/material_name_taken'
-            unit_locked:
-              $ref: '#/components/examples/unit_locked'
-            link_units_differ:
-              $ref: '#/components/examples/link_units_differ'
-            material_supplier_already_linked:
-              $ref: '#/components/examples/material_supplier_already_linked'
-            material_inactive:
-              $ref: '#/components/examples/material_inactive'
-            run_in_progress:
-              $ref: '#/components/examples/run_in_progress'
-            volume_acceptance_unavailable:
-              $ref: '#/components/examples/volume_acceptance_unavailable'
 
   examples:
     unauthenticated:
@@ -1691,9 +1724,6 @@ components:
     not_found:
       summary: ресурс не знайдено
       value: { type: about:blank, title: Не знайдено, status: 404, detail: Ресурс не знайдено., code: not_found }
-    method_not_allowed:
-      summary: DELETE на адресі постачальника
-      value: { type: about:blank, title: Метод не дозволено, status: 405, detail: Метод DELETE не підтримується для цієї адреси., code: method_not_allowed }
     unsupported_media_type:
       summary: тіло не в JSON
       value: { type: about:blank, title: Непідтримуваний тип даних, status: 415, detail: 'Запит має бути у форматі JSON (Content-Type: application/json).', code: unsupported_media_type }
@@ -1787,6 +1817,46 @@ components:
         code: validation_failed
         errors:
           - { field: active, code: invalid_type, detail: Значення має неправильний тип. }
+    validation_failed_supplier_id_invalid_type:
+      summary: ідентифікатор постачальника в шляху не ціле число (`/suppliers/abc`)
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: supplier_id, code: invalid_type, detail: Значення має неправильний тип. }
+    validation_failed_material_id_invalid_type:
+      summary: ідентифікатор матеріалу в шляху не ціле число (`/materials/abc`)
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: material_id, code: invalid_type, detail: Значення має неправильний тип. }
+    validation_failed_supplier_item_id_invalid_type:
+      summary: ідентифікатор позиції в шляху не ціле число (`/supplier-items/abc/link`)
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: supplier_item_id, code: invalid_type, detail: Значення має неправильний тип. }
+    validation_failed_run_id_invalid_type:
+      summary: ідентифікатор запуску в шляху не ціле число (`/runs/abc`)
+      value:
+        type: about:blank
+        title: Необроблюваний вміст
+        status: 422
+        detail: Запит містить некоректні значення.
+        code: validation_failed
+        errors:
+          - { field: run_id, code: invalid_type, detail: Значення має неправильний тип. }
     validation_failed_malformed_json:
       summary: тіло не є коректним JSON
       value:

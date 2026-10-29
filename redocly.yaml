@@ -1,0 +1,8 @@
+extends:
+  - recommended
+
+rules:
+  # Educational repository without a license; the contract has nothing to license.
+  info-license: off
+  # The only server is the local deployment (REQ-NF-014): http://localhost:8000/api/v1.
+  no-server-example.com: off
