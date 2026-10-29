@@ -11,9 +11,10 @@ Checks per scenario: HTTP status, Content-Type of the body, `code` of a problem
 response, `errors[].field`/`errors[].code` pairs, required and absent fields,
 required response headers. Prism answers an unknown path or method in its own
 error format, so for scenarios marked `prism_format` only the status is checked
-when the target is the mock.
+when the target is the mock. Scenarios marked `unsupported` are not sent to the
+mock at all and are reported as SKIP; against the server they run as usual.
 
-Exit code is 0 when every scenario passes, 1 otherwise.
+Exit code is 0 when no scenario fails (skipped ones do not fail), 1 otherwise.
 """
 
 import argparse
@@ -143,6 +144,16 @@ def run(base_url: str, target: str, only: set[str]) -> int:
     for scenario in spec["scenarios"]:
         if only and scenario["id"] not in only:
             continue
+        expected = str(scenario["expect"]["status"])
+        if scenario["expect"].get("code"):
+            expected += " " + scenario["expect"]["code"]
+        request_line = f"{scenario['method']} {scenario['path']}"
+        unsupported = scenario.get("mock", {}).get("unsupported")
+        if target == "mock" and unsupported:
+            rows.append(
+                (scenario["id"], request_line, expected, "—", "SKIP", unsupported)
+            )
+            continue
         try:
             status, headers, raw = send(base_url, scenario, spec["sessions"])
             failures = check(scenario, status, headers, raw, target)
@@ -158,13 +169,10 @@ def run(base_url: str, target: str, only: set[str]) -> int:
             note = "status only (Prism error format)"
         else:
             note = "; ".join(failures)
-        expected = str(scenario["expect"]["status"])
-        if scenario["expect"].get("code"):
-            expected += " " + scenario["expect"]["code"]
         rows.append(
             (
                 scenario["id"],
-                f"{scenario['method']} {scenario['path']}",
+                request_line,
                 expected,
                 got,
                 "FAIL" if failures else "PASS",
@@ -184,7 +192,11 @@ def run(base_url: str, target: str, only: set[str]) -> int:
         )
 
     failed = sum(1 for row in rows if row[4] == "FAIL")
-    print(f"\n{len(rows)} scenarios: {len(rows) - failed} passed, {failed} failed")
+    skipped = sum(1 for row in rows if row[4] == "SKIP")
+    passed = len(rows) - failed - skipped
+    print(
+        f"\n{len(rows)} scenarios: {passed} passed, {failed} failed, {skipped} skipped"
+    )
     return 1 if failed else 0
 
 
