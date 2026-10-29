@@ -100,7 +100,7 @@ paths:
               description: Cookie сесії `spm_session` з атрибутом `SameSite=Lax`.
               schema:
                 type: string
-              example: spm_session=<значення>; SameSite=Lax
+              example: spm_session=3f9c2a7e; SameSite=Lax
           content:
             application/json:
               schema:
