@@ -69,7 +69,7 @@ REQ-ID з SRS 1.9. Прогалини чернетки (ПА-n) вирішила
   | 2 | роль має право на операцію | 403 |
   | 3 | ресурс з ідентифікатором зі шляху існує | 404 |
   | 4 | `Content-Type` запиту з тілом — `application/json` | 415 |
-  | 5 | вміст запиту коректний: формат, обов'язковість, межі, посилання з тіла | 422 |
+  | 5 | вміст запиту коректний: формат, обов'язковість, межі, посилання з тіла, ціле число як ідентифікатор у шляху | 422 |
   | 6 | запит не суперечить стану системи | 409 |
 
   Тож менеджер на адміністративній операції завжди отримує 403, навіть з неіснуючим
@@ -436,27 +436,27 @@ REQ-ID з SRS 1.9. Прогалини чернетки (ПА-n) вирішила
 | 3 | DELETE | `/sessions/current` | вихід: завершує сесію | обидві | — | — | — | 204 | REQ-F-002, REQ-NF-031 | — |
 | 4 | GET | `/suppliers` | екран «постачальники»; для менеджера — фільтр стрічки | обидві | `page` | — | сторінка постачальників за назвою, зокрема неактивних; менеджеру — без `catalog_url` і `parser` | 200; 422 `validation_failed` | REQ-F-007, REQ-F-011, REQ-F-034, REQ-F-057, REQ-F-068, REQ-F-070 | BDD-070 |
 | 5 | POST | `/suppliers` | створює постачальника | адмін | — | `name`, `catalog_url`, `parser`, `active` | постачальник | 201; 422 `validation_failed`; 409 `supplier_name_taken` | REQ-F-007, REQ-NF-006 | — |
-| 6 | GET | `/suppliers/{supplier_id}` | один постачальник (форма редагування) | адмін | — | — | постачальник | 200; 404 `not_found` | REQ-F-007 | — |
+| 6 | GET | `/suppliers/{supplier_id}` | один постачальник (форма редагування) | адмін | — | — | постачальник | 200; 404 `not_found`; 422 `validation_failed` | REQ-F-007 | — |
 | 7 | PATCH | `/suppliers/{supplier_id}` | змінює постачальника, деактивує (`active: false`), активує (`active: true`) | адмін | — | будь-які з `name`, `catalog_url`, `parser`, `active` | постачальник | 200; 404 `not_found`; 422 `validation_failed`; 409 `supplier_name_taken` | REQ-F-007, REQ-F-010, REQ-F-011, REQ-F-056, REQ-F-067 | BDD-044, BDD-053, BDD-060 |
 | 8 | GET | `/parsers` | список наявних розбирачів | адмін | — | — | `items` — назви розбирачів | 200 | REQ-F-007, REQ-NF-006 | — |
 | 9 | GET | `/materials` | екран «матеріали»; вибір матеріалу для прив'язки й перев'язки; для менеджера — вибір на екрані історії і фільтр стрічки | обидві | `page`, `q` (пошук за найменуванням) | — | сторінка матеріалів за найменуванням, зокрема неактивних | 200; 422 `validation_failed` | REQ-F-008, REQ-F-049, REQ-F-057, REQ-F-068, REQ-F-069, REQ-F-070 | BDD-063, BDD-070 |
 | 10 | POST | `/materials` | створює матеріал | адмін | — | `name`, `unit`, `active` | матеріал | 201; 422 `validation_failed`; 409 `material_name_taken` | REQ-F-008 | — |
-| 11 | GET | `/materials/{material_id}` | один матеріал (форма редагування) | адмін | — | — | матеріал | 200; 404 `not_found` | REQ-F-008 | — |
+| 11 | GET | `/materials/{material_id}` | один матеріал (форма редагування) | адмін | — | — | матеріал | 200; 404 `not_found`; 422 `validation_failed` | REQ-F-008 | — |
 | 12 | PATCH | `/materials/{material_id}` | змінює матеріал, деактивує, активує | адмін | — | будь-які з `name`, `unit`, `active` | матеріал | 200; 404 `not_found`; 422 `validation_failed`; 409 `material_name_taken`, `unit_locked` | REQ-F-008, REQ-F-009, REQ-F-010, REQ-F-049, REQ-F-051, REQ-F-067, REQ-F-070 | BDD-034, BDD-038, BDD-040, BDD-070 |
 | 13 | GET | `/materials/{material_id}/links` | перелік прив'язаних позицій матеріалу | адмін | `page` | — | сторінка прив'язок за назвою постачальника, далі за артикулом | 200; 404 `not_found`; 422 `validation_failed` | REQ-F-057, REQ-F-069 | BDD-063 |
 | 14 | GET | `/unlinked-items` | список непов'язаних позицій | адмін | `page`, `q` (пошук за артикулом і найменуванням) | — | сторінка позицій за назвою постачальника, далі за артикулом | 200; 422 `validation_failed` | REQ-F-011, REQ-F-012, REQ-F-057 | BDD-019 |
 | 15 | GET | `/attention-items` | список позицій, що потребують уваги | адмін | `page` | — | сторінка за назвою постачальника, далі за артикулом | 200; 422 `validation_failed` | REQ-F-011, REQ-F-017, REQ-F-057, REQ-F-066, REQ-F-068 | BDD-028, BDD-052 |
 | 16 | PUT | `/supplier-items/{supplier_item_id}/link` | прив'язує позицію до матеріалу або перев'язує на інший | адмін | — | `material_id` | прив'язка | 201 (прив'язано); 200 (перев'язано або без змін); 404 `not_found`; 422 `validation_failed`; 409 `link_units_differ`, `material_supplier_already_linked`, `material_inactive` | REQ-F-013, REQ-F-014, REQ-F-015, REQ-F-016, REQ-F-048, REQ-F-050, REQ-F-066, REQ-F-067, REQ-F-069 | BDD-019, BDD-026, BDD-027, BDD-032, BDD-037, BDD-042, BDD-055, BDD-056, BDD-063 |
-| 17 | DELETE | `/supplier-items/{supplier_item_id}/link` | знімає прив'язку | адмін | — | — | — | 204; 404 `not_found` | REQ-F-015, REQ-F-066, REQ-F-069, REQ-NF-031 | BDD-056, BDD-063 |
+| 17 | DELETE | `/supplier-items/{supplier_item_id}/link` | знімає прив'язку | адмін | — | — | — | 204; 404 `not_found`; 422 `validation_failed` | REQ-F-015, REQ-F-066, REQ-F-069, REQ-NF-031 | BDD-056, BDD-063 |
 | 18 | GET | `/material-comparisons` | загальний список порівняння | обидві | `page`, `q` (пошук за найменуванням) | — | сторінка активних матеріалів за найменуванням з найдешевшим постачальником і ціною | 200; 422 `validation_failed` | REQ-F-035, REQ-F-037, REQ-F-039, REQ-F-049, REQ-F-057, REQ-F-059 | BDD-025, BDD-050, BDD-068 |
-| 19 | GET | `/material-comparisons/{material_id}` | порівняння матеріалу | обидві | — | — | `material`; `items` — рядки постачальників з останньою відомою ціною, `stale`, `cheapest`, різницею; для деактивованого матеріалу — `material.active: false` і порожній `items` | 200; 404 `not_found` | REQ-F-011, REQ-F-029, REQ-F-036, REQ-F-037, REQ-F-038, REQ-F-039, REQ-F-049, REQ-F-065 | BDD-023, BDD-024, BDD-025, BDD-034, BDD-044, BDD-050, BDD-052, BDD-055 |
+| 19 | GET | `/material-comparisons/{material_id}` | порівняння матеріалу | обидві | — | — | `material`; `items` — рядки постачальників з останньою відомою ціною, `stale`, `cheapest`, різницею; для деактивованого матеріалу — `material.active: false` і порожній `items` | 200; 404 `not_found`; 422 `validation_failed` | REQ-F-011, REQ-F-029, REQ-F-036, REQ-F-037, REQ-F-038, REQ-F-039, REQ-F-049, REQ-F-065 | BDD-023, BDD-024, BDD-025, BDD-034, BDD-044, BDD-050, BDD-052, BDD-055 |
 | 20 | GET | `/materials/{material_id}/price-history` | історія матеріалу за період | обидві | `period` (обов'язковий: `last_7_days`, `last_30_days`, `all`) | — | `material`, `period`; `items` — зміни ціни від новіших до старіших, рядки «чинна на початок періоду» — останні | 200; 404 `not_found`; 422 `validation_failed` | REQ-F-011, REQ-F-016, REQ-F-040, REQ-F-041, REQ-F-049 | BDD-026, BDD-034, BDD-036 |
 | 21 | GET | `/events` | стрічка змін | обидві | `page`, `material_id`, `supplier_id`, `kind` | — | сторінка подій від новіших до старіших за `created_at` | 200; 422 `validation_failed` | REQ-F-011, REQ-F-042, REQ-F-049, REQ-F-057, REQ-F-058 | BDD-045, BDD-064 |
 | 22 | GET | `/supplier-update-statuses` | стан оновлення постачальників | обидві | `page` | — | сторінка активних постачальників за назвою з датою останнього оновлення | 200; 422 `validation_failed` | REQ-F-034, REQ-F-057 | BDD-035, BDD-039, BDD-069 |
 | 23 | GET | `/settings` | екран «налаштування» | адмін | — | — | налаштування | 200 | REQ-F-019, REQ-F-043 | — |
 | 24 | PATCH | `/settings` | змінює час оновлення і поріг | адмін | — | будь-які з `update_time`, `notification_threshold` | налаштування | 200; 422 `validation_failed` | REQ-F-019, REQ-F-043, REQ-F-055, REQ-F-067 | BDD-017, BDD-054, BDD-061, BDD-068 |
 | 25 | POST | `/runs` | ручний запуск | адмін | — | — | 202: запуск зі статусом `in_progress`, заголовок `Location`; 200: запис журналу `no_active_suppliers` | 202; 200; 409 `run_in_progress` | REQ-F-020, REQ-F-021, REQ-F-032, REQ-F-055, REQ-F-063 | BDD-008, BDD-030, BDD-043 |
-| 26 | GET | `/runs/{run_id}` | один запуск зі статусами постачальників | адмін | — | — | запуск | 200; 404 `not_found` | REQ-F-024, REQ-F-025, REQ-F-026, REQ-F-030, REQ-F-031, REQ-F-032, REQ-F-033, REQ-F-060, REQ-F-061, REQ-F-062 | BDD-001, BDD-002, BDD-066, BDD-069 |
+| 26 | GET | `/runs/{run_id}` | один запуск зі статусами постачальників | адмін | — | — | запуск | 200; 404 `not_found`; 422 `validation_failed` | REQ-F-024, REQ-F-025, REQ-F-026, REQ-F-030, REQ-F-031, REQ-F-032, REQ-F-033, REQ-F-060, REQ-F-061, REQ-F-062 | BDD-001, BDD-002, BDD-066, BDD-069 |
 | 27 | GET | `/run-log-entries` | журнал оновлень | адмін | `page` | — | сторінка записів від новіших до старіших | 200; 422 `validation_failed` | REQ-F-018, REQ-F-022, REQ-F-023, REQ-F-031, REQ-F-032, REQ-F-033, REQ-F-057, REQ-F-063, REQ-NF-019 | BDD-001, BDD-007, BDD-009, BDD-043, BDD-066, BDD-069 |
 | 28 | POST | `/volume-acceptances` | приймає новий обсяг постачальника | адмін | — | `run_id`, `supplier_id` | прийняття нового обсягу | 201; 422 `validation_failed`; 409 `volume_acceptance_unavailable` | REQ-F-031, REQ-F-047, REQ-F-052 | BDD-007 |
 
@@ -535,7 +535,7 @@ REQ-ID з SRS 1.9. Прогалини чернетки (ПА-n) вирішила
 Правила:
 - 422 — запит некоректний сам собою: формат, обов'язковість, межі, невідомий розбирач, невідоме
   поле чи поле лише для читання в тілі, посилання на неіснуючий ідентифікатор у тілі, тіло не
-  JSON. Поле `errors` є завжди.
+  JSON, ідентифікатор у шляху не ціле число (`/suppliers/abc`). Поле `errors` є завжди.
 - 409 — запит коректний, але суперечить поточному стану системи; після зміни стану той самий запит
   може пройти. Для конфлікту, пов'язаного з полем (`supplier_name_taken`, `material_name_taken`,
   `unit_locked`), поле `errors` теж є.
@@ -573,7 +573,7 @@ REQ-ID з SRS 1.9. Прогалини чернетки (ПА-n) вирішила
 | `errors[].code` | Поле | Коли | REQ-ID | Текст `detail` |
 |---|---|---|---|---|
 | `required` | будь-яке обов'язкове поле тіла; параметр `period` | значення немає або порожнє | REQ-F-007, REQ-F-008, REQ-F-040 | Поле обов'язкове. |
-| `invalid_type` | будь-яке поле чи параметр | значення не того типу (рядок замість числа, число замість логічного тощо) | — (SRS не визначає) | Значення має неправильний тип. |
+| `invalid_type` | будь-яке поле чи параметр, зокрема ідентифікатор у шляху (`supplier_id`, `material_id`, `supplier_item_id`, `run_id`) | значення не того типу (рядок замість числа, число замість логічного тощо; `/suppliers/abc`) | — (SRS не визначає) | Значення має неправильний тип. |
 | `unknown_field` | будь-яке поле тіла | поля немає в представленні ресурсу | — (проєктне рішення, ПА-15) | Невідоме поле. |
 | `read_only_field` | `id`, `last_update_date`, `linked_items_count` | поле лише для читання | — (проєктне рішення, ПА-15) | Поле лише для читання. |
 | `malformed_json` | `null` (усе тіло) | тіло не є коректним JSON | — (SRS не визначає) | Тіло запиту не є коректним JSON. |
