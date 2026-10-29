@@ -1,0 +1,13 @@
+{
+  "name": "supplier-price-monitoring-is",
+  "private": true,
+  "description": "Contract tooling for spec/openapi.yaml: lint and mock server",
+  "scripts": {
+    "api:lint": "redocly lint spec/openapi.yaml",
+    "api:mock": "prism mock -p 4010 spec/openapi.yaml"
+  },
+  "devDependencies": {
+    "@redocly/cli": "2.72.0",
+    "@stoplight/prism-cli": "5.16.0"
+  }
+}
