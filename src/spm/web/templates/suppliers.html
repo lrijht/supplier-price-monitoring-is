@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "macros.html" import pager, active_text %}
+{% block title %}Постачальники{% endblock %}
+{% block content %}
+<h1>Постачальники</h1>
+<p><a href="/suppliers/new">Новий постачальник</a></p>
+<table>
+  <thead>
+    <tr><th>Назва</th><th>Адреса каталогу</th><th>Розбирач</th><th>Активний</th><th>Дата останнього оновлення</th><th></th></tr>
+  </thead>
+  <tbody>
+  {% for s in page.items %}
+    <tr>
+      <td>{{ s.name }}</td>
+      <td>{{ s.catalog_url }}</td>
+      <td>{{ s.parser }}</td>
+      <td>{{ active_text(s.active) }}</td>
+      <td>{{ s.last_update_date.isoformat() if s.last_update_date else "ще не оновлювався" }}</td>
+      <td><a href="/suppliers/{{ s.id }}">Змінити</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{{ pager(page, "/suppliers") }}
+{% endblock %}

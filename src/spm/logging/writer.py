@@ -16,6 +16,12 @@ from typing import Any
 from spm.clock import Clock, to_kyiv
 
 _request_id: ContextVar[str | None] = ContextVar("spm_request_id", default=None)
+# Login and role of the session that serves the current request. A mutable
+# holder: the value is set deep inside the request (possibly in a copied
+# context) and read by the middleware after the response.
+_request_account: ContextVar[dict[str, str | None] | None] = ContextVar(
+    "spm_request_account", default=None
+)
 
 
 def current_request_id() -> str | None:
@@ -29,6 +35,29 @@ def set_request_id(value: str | None):
 
 def reset_request_id(token) -> None:
     _request_id.reset(token)
+
+
+def start_request_account():
+    """Give the current request an empty login/role holder."""
+    return _request_account.set({"login": None, "role": None})
+
+
+def reset_request_account(token) -> None:
+    _request_account.reset(token)
+
+
+def set_request_account(login: str | None, role: str | None) -> None:
+    """Record whose session serves the current request (no-op outside one)."""
+    holder = _request_account.get()
+    if holder is not None:
+        holder["login"], holder["role"] = login, role
+
+
+def current_request_account() -> tuple[str | None, str | None]:
+    holder = _request_account.get()
+    if holder is None:
+        return None, None
+    return holder["login"], holder["role"]
 
 
 class JsonLinesLog:

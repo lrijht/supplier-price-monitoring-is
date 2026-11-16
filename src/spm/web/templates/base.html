@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<title>{% block title %}{% endblock %} — Моніторинг цін постачальників</title>
+<style>
+body { font-family: sans-serif; margin: 0 1.5rem 2rem; }
+header { display: flex; gap: 1rem; align-items: center; border-bottom: 1px solid #ccc; padding: .5rem 0; }
+header nav { display: flex; gap: 1rem; flex: 1; }
+table { border-collapse: collapse; margin: 1rem 0; }
+th, td { border: 1px solid #ccc; padding: .25rem .5rem; text-align: left; }
+.error { color: #a00; }
+form.inline { display: inline; }
+</style>
+</head>
+<body>
+{% if account %}
+<header>
+  <nav>
+    {% if account.is_admin %}
+    <a href="/suppliers">Постачальники</a>
+    <a href="/materials">Матеріали</a>
+    <a href="/unlinked-items">Непов'язані позиції</a>
+    <a href="/settings">Налаштування</a>
+    {% endif %}
+  </nav>
+  <form method="post" action="/logout"><button type="submit">Вийти</button></form>
+</header>
+{% endif %}
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "macros.html" import pager %}
+{% block title %}Непов'язані позиції{% endblock %}
+{% block content %}
+<h1>Непов'язані позиції</h1>
+<form method="get" action="/unlinked-items">
+  <label>Пошук за артикулом і найменуванням <input type="search" name="q" value="{{ q or '' }}"></label>
+  <button type="submit">Знайти</button>
+</form>
+<table>
+  <thead>
+    <tr><th>Постачальник</th><th>Артикул</th><th>Найменування</th><th>Одиниця</th><th>Дата, коли позицію бачили востаннє</th><th></th></tr>
+  </thead>
+  <tbody>
+  {% for item in page.items %}
+    <tr>
+      <td>{{ item.supplier.name }}</td>
+      <td>{{ item.sku }}</td>
+      <td>{{ item.name }}</td>
+      <td>{{ item.unit }}</td>
+      <td>{{ item.last_seen_date.isoformat() }}</td>
+      <td><a href="/supplier-items/{{ item.id }}/link">Прив'язати</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{{ pager(page, "/unlinked-items", query) }}
+{% endblock %}

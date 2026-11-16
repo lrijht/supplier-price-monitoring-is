@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "macros.html" import pager %}
+{% block title %}Прив'язані позиції{% endblock %}
+{% block content %}
+<h1>Прив'язані позиції матеріалу «{{ material.name }}»</h1>
+<p>Одиниця матеріалу: {{ material.unit }}. <a href="/materials">До списку матеріалів</a></p>
+<table>
+  <thead>
+    <tr><th>Постачальник</th><th>Артикул</th><th>Найменування</th><th>Одиниця</th><th></th></tr>
+  </thead>
+  <tbody>
+  {% for item in page.items %}
+    <tr>
+      <td>{{ item.supplier.name }}</td>
+      <td>{{ item.sku }}</td>
+      <td>{{ item.name }}</td>
+      <td>{{ item.unit }}</td>
+      <td>
+        <form class="inline" method="post" action="/supplier-items/{{ item.id }}/unlink"><button type="submit">Зняти</button></form>
+        <a href="/supplier-items/{{ item.id }}/link">Перев'язати</a>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{{ pager(page, "/materials/" ~ material.id ~ "/links") }}
+{% endblock %}

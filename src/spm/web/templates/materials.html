@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "macros.html" import pager, active_text %}
+{% block title %}Матеріали{% endblock %}
+{% block content %}
+<h1>Матеріали</h1>
+<p><a href="/materials/new">Новий матеріал</a></p>
+<table>
+  <thead>
+    <tr><th>Найменування</th><th>Одиниця</th><th>Активний</th><th>Кількість прив'язаних позицій</th><th></th></tr>
+  </thead>
+  <tbody>
+  {% for m in page.items %}
+    <tr>
+      <td>{{ m.name }}</td>
+      <td>{{ m.unit }}</td>
+      <td>{{ active_text(m.active) }}</td>
+      <td>{{ m.linked_items_count }}</td>
+      <td><a href="/materials/{{ m.id }}">Змінити</a> <a href="/materials/{{ m.id }}/links">Прив'язані позиції</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{{ pager(page, "/materials") }}
+{% endblock %}
