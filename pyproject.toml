@@ -1,7 +1,7 @@
 [project]
 name = "supplier-price-monitoring-is"
 version = "0.1.0"
-description = "Educational information system: supplier material price monitoring"
+description = "Educational information system: supplier material price monitoring (Python 3.12, FastAPI, SQLite)"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi==0.163.1",
