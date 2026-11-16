@@ -1,0 +1,46 @@
+{
+  "suppliers": [
+    {
+      "slug": "alfa",
+      "name": "Альфа Плита",
+      "layout": "table",
+      "mode": "normal",
+      "delay_seconds": 35,
+      "keep_items": 2,
+      "items": [
+        {"sku": "АП-101", "name": "Плита ДСП біла 16 мм", "unit": "шт", "price": "1250.50"},
+        {"sku": "АП-102", "name": "Плита ДСП дуб сонома 16 мм", "unit": "шт", "price": "1384.00"},
+        {"sku": "АП-205", "name": "Плита МДФ 18 мм", "unit": "шт", "price": "1720.90"},
+        {"sku": "АП-310", "name": "ДВП біле 3 мм", "unit": "шт", "price": null}
+      ]
+    },
+    {
+      "slug": "beta",
+      "name": "Бета Кромка",
+      "layout": "cards",
+      "mode": "normal",
+      "delay_seconds": 35,
+      "keep_items": 2,
+      "items": [
+        {"sku": "БК-01", "name": "Кромка ПВХ біла 2 мм", "unit": "м.п.", "price": "18.40"},
+        {"sku": "БК-02", "name": "Кромка ПВХ дуб 2 мм", "unit": "м.п.", "price": "21.10"},
+        {"sku": "БК-07", "name": "Кромка ПВХ біла 0,4 мм", "unit": "м.п.", "price": "6.75"},
+        {"sku": "БК-12", "name": "Кромка АБС графіт 1 мм", "unit": "м.п.", "price": null}
+      ]
+    },
+    {
+      "slug": "vega",
+      "name": "Вега Фурнітура",
+      "layout": "list",
+      "mode": "normal",
+      "delay_seconds": 35,
+      "keep_items": 2,
+      "items": [
+        {"sku": "ВФ-5001", "name": "Петля накладна з доводчиком", "unit": "шт", "price": "64.20"},
+        {"sku": "ВФ-5002", "name": "Ручка-скоба 128 мм", "unit": "шт", "price": "95.00"},
+        {"sku": "ВФ-5010", "name": "Напрямна кулькова 450 мм", "unit": "компл.", "price": "212.30"},
+        {"sku": "ВФ-5020", "name": "Шуруп 4х16", "unit": "уп.", "price": null}
+      ]
+    }
+  ]
+}
