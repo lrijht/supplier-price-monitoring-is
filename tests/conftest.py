@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from helpers import ADMIN_LOGIN, ADMIN_PASSWORD, MANAGER_LOGIN, MANAGER_PASSWORD
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -274,3 +275,93 @@ def live_simulator(simulator_module, sim_data_file) -> Iterator[str]:
     yield f"http://127.0.0.1:{port}"
     server.should_exit = True
     thread.join(timeout=5)
+
+
+# --- B1.2: accounts, sessions, supplier items --------------------------------
+# Interface added by the B1.2 tests: see logs/2026-11-16-b1-2-tests.md,
+# section "Інтерфейс, заданий тестами".
+
+
+@pytest.fixture
+def auth_cli_module():
+    return importlib.import_module("spm.auth.cli")
+
+
+@pytest.fixture
+def storage_module():
+    return importlib.import_module("spm.storage")
+
+
+@pytest.fixture
+def run_account_command(auth_cli_module, config):
+    """Run the account set-up command (REQ-F-006) in-process.
+
+    ``password`` is what the person types at every password prompt. Returns
+    the exit code (0 — created, otherwise refused); an argparse exit counts.
+    The prompts the command showed are kept in ``run.prompts``.
+    """
+
+    def run(argv: list[str], password: str = "", cfg: object | None = None) -> int:
+        def read_password(prompt: str) -> str:
+            run.prompts.append(prompt)
+            return password
+
+        try:
+            code = auth_cli_module.main(
+                list(argv), config=cfg or config, read_password=read_password
+            )
+        except SystemExit as exc:
+            code = exc.code if isinstance(exc.code, int) else 1
+        return code
+
+    run.prompts = []
+    return run
+
+
+@pytest.fixture
+def accounts(run_account_command) -> None:
+    """Administrator "admin" and manager "manager" with test passwords."""
+    assert run_account_command([ADMIN_LOGIN, "admin"], ADMIN_PASSWORD) == 0
+    assert run_account_command([MANAGER_LOGIN, "manager"], MANAGER_PASSWORD) == 0
+
+
+def _logged_in(client, login: str, password: str):
+    resp = client.post("/api/v1/sessions", json={"login": login, "password": password})
+    assert resp.status_code == 201, resp.text
+    return client
+
+
+@pytest.fixture
+def admin_client(app, client_factory, accounts):
+    """A client of ``app`` with an administrator session opened through the API."""
+    return _logged_in(client_factory(app), ADMIN_LOGIN, ADMIN_PASSWORD)
+
+
+@pytest.fixture
+def manager_client(app, client_factory, accounts):
+    """A client of ``app`` with a manager session opened through the API."""
+    return _logged_in(client_factory(app), MANAGER_LOGIN, MANAGER_PASSWORD)
+
+
+@pytest.fixture
+def add_item(storage_module, config):
+    """Create a supplier item directly in storage (no update runs yet, T-15)."""
+    from datetime import date
+
+    def add(
+        supplier_id: int,
+        sku: str,
+        name: str = "Позиція",
+        unit: str = "шт",
+        last_seen_date: date = date(2026, 7, 14),
+    ) -> int:
+        return storage_module.add_supplier_item(
+            config.database_path,
+            supplier_id=supplier_id,
+            sku=sku,
+            name=name,
+            unit=unit,
+            last_seen_date=last_seen_date,
+        )
+
+    return add
