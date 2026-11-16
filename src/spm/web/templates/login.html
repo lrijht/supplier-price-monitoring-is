@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% from "macros.html" import errors_block %}
+{% block title %}Вхід{% endblock %}
+{% block content %}
+<h1>Вхід</h1>
+{{ errors_block(errors) }}
+<form method="post" action="/login">
+  <p><label>Логін <input type="text" name="login" value="{{ login or '' }}" autocomplete="username" required></label></p>
+  <p><label>Пароль <input type="password" name="password" autocomplete="current-password" required></label></p>
+  <p><button type="submit">Увійти</button></p>
+</form>
+{% endblock %}

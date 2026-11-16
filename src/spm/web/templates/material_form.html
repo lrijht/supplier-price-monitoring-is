@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% from "macros.html" import errors_block %}
+{% block title %}{{ heading }}{% endblock %}
+{% block content %}
+<h1>{{ heading }}</h1>
+{{ errors_block(errors) }}
+<form method="post" action="{{ action }}">
+  <p><label>Найменування <input type="text" name="name" value="{{ values.name or '' }}"></label></p>
+  <p><label>Одиниця виміру <input type="text" name="unit" value="{{ values.unit or '' }}"></label></p>
+  <p><label><input type="checkbox" name="active" value="on"{% if values.active %} checked{% endif %}> Активний</label></p>
+  <p><button type="submit">Зберегти</button> <a href="/materials">До списку матеріалів</a></p>
+</form>
+{% endblock %}

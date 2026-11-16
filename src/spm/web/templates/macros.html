@@ -1,0 +1,21 @@
+{% macro errors_block(errors) -%}
+{% if errors %}
+<ul class="error">
+  {% for message in errors %}<li>{{ message }}</li>{% endfor %}
+</ul>
+{% endif %}
+{%- endmacro %}
+
+{% macro pager(page, base, query="") -%}
+{% if page.total_pages > 1 %}
+<nav class="pages">
+  Сторінка {{ page.page }} з {{ page.total_pages }}:
+  {% for number in range(1, page.total_pages + 1) %}
+    {% if number == page.page %}<strong>{{ number }}</strong>
+    {% else %}<a href="{{ base }}?page={{ number }}{{ query }}">{{ number }}</a>{% endif %}
+  {% endfor %}
+</nav>
+{% endif %}
+{%- endmacro %}
+
+{% macro active_text(value) -%}{{ "так" if value else "ні" }}{%- endmacro %}

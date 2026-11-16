@@ -15,7 +15,14 @@ from collections.abc import Awaitable, Callable, MutableMapping
 from typing import Any
 
 from spm.logging.redaction import SecretCollector
-from spm.logging.writer import JsonLinesLog, reset_request_id, set_request_id
+from spm.logging.writer import (
+    JsonLinesLog,
+    current_request_account,
+    reset_request_account,
+    reset_request_id,
+    set_request_id,
+    start_request_account,
+)
 
 HTTP_REQUEST_EVENT = "http_request"
 EXCEPTION_EVENT = "unhandled_exception"
@@ -51,6 +58,7 @@ class RequestLogMiddleware:
             return
 
         token = set_request_id(uuid.uuid4().hex)
+        account_token = start_request_account()
         started = time.perf_counter()
         secrets = SecretCollector(scope.get("headers", []))
         state = {"status": None}
@@ -75,14 +83,18 @@ class RequestLogMiddleware:
                 await response(scope, receive, send_tracked)
         finally:
             duration_ms = int((time.perf_counter() - started) * 1000)
+            login, role = current_request_account()
             self.action_log.write(
                 level="info",
                 event=HTTP_REQUEST_EVENT,
+                login=login,
+                role=role,
                 method=scope["method"],
                 path=scope["path"],  # ASGI path carries no query string
                 status=state["status"] if state["status"] is not None else 500,
                 duration_ms=max(duration_ms, 0),
             )
+            reset_request_account(account_token)
             reset_request_id(token)
 
     def _log_exception(

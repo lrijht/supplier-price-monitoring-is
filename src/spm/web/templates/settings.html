@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% from "macros.html" import errors_block %}
+{% block title %}Налаштування{% endblock %}
+{% block content %}
+<h1>Налаштування</h1>
+{{ errors_block(errors) }}
+<form method="post" action="/settings">
+  <p><label>Час щоденного оновлення, ГГ:ХХ (київський час) <input type="text" name="update_time" value="{{ values.update_time }}"></label></p>
+  <p><label>Поріг сповіщень <input type="text" name="notification_threshold" value="{{ values.notification_threshold }}"> %</label></p>
+  <p><button type="submit">Зберегти</button></p>
+</form>
+{% endblock %}

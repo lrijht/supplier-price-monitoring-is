@@ -4,6 +4,15 @@ Both logs are JSON Lines files with the same common fields (Р-126, Р-128).
 """
 
 from spm.logging.middleware import RequestLogMiddleware
-from spm.logging.writer import JsonLinesLog, current_request_id
+from spm.logging.writer import (
+    JsonLinesLog,
+    current_request_id,
+    set_request_account,
+)
 
-__all__ = ["JsonLinesLog", "RequestLogMiddleware", "current_request_id"]
+__all__ = [
+    "JsonLinesLog",
+    "RequestLogMiddleware",
+    "current_request_id",
+    "set_request_account",
+]

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "macros.html" import errors_block %}
+{% block title %}Вибір матеріалу{% endblock %}
+{% block content %}
+<h1>Вибір матеріалу для позиції</h1>
+<p>Постачальник: {{ item.supplier.name }}; артикул: {{ item.sku }}; найменування: {{ item.name }}; одиниця: {{ item.unit }}.</p>
+{% if current %}<p>Позицію прив'язано до матеріалу «{{ current.name }}».</p>{% endif %}
+{{ errors_block(errors) }}
+<form method="get" action="/supplier-items/{{ item.id }}/link">
+  <label>Пошук за найменуванням <input type="search" name="q" value="{{ q or '' }}"></label>
+  <button type="submit">Знайти</button>
+</form>
+<ul>
+  {% for m in materials %}
+  <li>
+    <form class="inline" method="post" action="/supplier-items/{{ item.id }}/link">
+      <input type="hidden" name="material_id" value="{{ m.id }}">
+      {{ m.name }} ({{ m.unit }}){% if not m.active %}, деактивовано{% endif %}
+      <button type="submit">Обрати</button>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+{% endblock %}
