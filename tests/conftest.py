@@ -365,3 +365,259 @@ def add_item(storage_module, config):
         )
 
     return add
+
+
+# --- B2: update runs, scheduler, feed ------------------------------------------
+# Interface added by the B2 tests: see logs/2026-11-16-b2-tests.md, section
+# "Інтерфейс, заданий тестами".
+
+
+@pytest.fixture
+def update_fetch_module():
+    """Module with the page fetch timeout constant (REQ-F-026)."""
+    return importlib.import_module("spm.update.fetch")
+
+
+class SimServer:
+    """The simulator on a loopback port, wrapped for tests.
+
+    The wrapper counts requests per catalogue path and can hold the answer for
+    a catalogue until the test releases it, so a run can be caught "in
+    progress" without real waiting. The pages themselves come from the
+    simulator and its data file (REQ-NF-013, REQ-NF-028).
+    """
+
+    def __init__(self, data_file: Path) -> None:
+        self.data_file = data_file
+        self.base = ""
+        self.suppliers: dict[str, dict] = {}
+        self._counts: dict[str, int] = {}
+        self._holds: dict[str, threading.Event] = {}
+        self._lock = threading.Lock()
+        self.write()
+
+    # data file
+    def write(self) -> None:
+        data = {"suppliers": list(self.suppliers.values())}
+        self.data_file.write_text(json.dumps(data, ensure_ascii=False), "utf-8")
+
+    def put(
+        self,
+        slug: str,
+        items: list[dict],
+        *,
+        name: str | None = None,
+        layout: str = "table",
+        mode: str = "normal",
+        delay_seconds: float = 2,
+        keep_items: int | None = None,
+    ) -> None:
+        """Set the page of one catalogue; other catalogues stay as they are."""
+        self.suppliers[slug] = {
+            "slug": slug,
+            "name": name or slug,
+            "layout": layout,
+            "mode": mode,
+            "delay_seconds": delay_seconds,
+            "keep_items": len(items) if keep_items is None else keep_items,
+            "items": items,
+        }
+        self.write()
+
+    def mode(self, slug: str, mode: str, **fields: object) -> None:
+        self.suppliers[slug].update(mode=mode, **fields)
+        self.write()
+
+    def url(self, slug: str) -> str:
+        return f"{self.base}/catalog/{slug}"
+
+    # requests
+    def requests(self, slug: str) -> int:
+        with self._lock:
+            return self._counts.get(f"/catalog/{slug}", 0)
+
+    def hold(self, slug: str) -> None:
+        self._holds[slug] = threading.Event()
+
+    def release(self, slug: str | None = None) -> None:
+        for key, event in list(self._holds.items()):
+            if slug is None or key == slug:
+                event.set()
+
+    def wrap(self, app):
+        import asyncio
+
+        async def asgi(scope, receive, send):
+            if scope["type"] == "http":
+                path = scope["path"]
+                with self._lock:
+                    self._counts[path] = self._counts.get(path, 0) + 1
+                hold = self._holds.get(path.rsplit("/", 1)[-1])
+                deadline = time.monotonic() + 60
+                while hold is not None and not hold.is_set():
+                    if time.monotonic() > deadline:
+                        break
+                    await asyncio.sleep(0.01)
+            await app(scope, receive, send)
+
+        return asgi
+
+
+@pytest.fixture
+def sim(simulator_module, tmp_path: Path) -> Iterator[SimServer]:
+    """The simulator on a free loopback port with request counting and holds."""
+    import uvicorn
+
+    server_data = SimServer(tmp_path / "sim-b2.json")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    server = uvicorn.Server(
+        uvicorn.Config(
+            server_data.wrap(simulator_module.create_app(server_data.data_file)),
+            host="127.0.0.1",
+            port=port,
+            log_level="warning",
+            timeout_graceful_shutdown=1,
+        )
+    )
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 5
+    while not server.started:
+        if time.monotonic() > deadline or not thread.is_alive():
+            raise RuntimeError("simulator did not start on the loopback address")
+        time.sleep(0.02)
+    server_data.base = f"http://127.0.0.1:{port}"
+    yield server_data
+    server_data.release()
+    server.should_exit = True
+    thread.join(timeout=5)
+
+
+@pytest.fixture
+def updates(app, admin_client):
+    """The update runner of ``app`` (the port of ``services`` that ``update``
+    implements); the database exists because ``admin_client`` started the app."""
+    return app.state.updates
+
+
+@pytest.fixture
+def world(app, admin_client, sim, updates, clock, storage_module, config):
+    from helpers_b2 import World
+
+    return World(
+        app=app,
+        admin=admin_client,
+        sim=sim,
+        updates=updates,
+        clock=clock,
+        storage=storage_module,
+        config=config,
+    )
+
+
+@pytest.fixture
+def keep_sessions(request, clock, monkeypatch) -> list:
+    """Keep the test's sessions open while the clock jumps by hours and days.
+
+    REQ-NF-021 ends a session after 8 idle hours of the application clock;
+    B2 tests move that clock across days between requests. After every move
+    each logged-in client of the test opens a new session through the API
+    (``POST /sessions``), as a user would log in again. Clients:
+    ``admin_client``, ``manager_client`` (if the test uses them) and the ones
+    in the returned list (``restart`` adds its clients).
+    """
+    from helpers import ADMIN_LOGIN, ADMIN_PASSWORD, MANAGER_LOGIN, MANAGER_PASSWORD
+
+    extra: list = []
+    original = clock.advance
+
+    def relogin(tc, login: str, password: str) -> None:
+        resp = tc.post("/api/v1/sessions", json={"login": login, "password": password})
+        assert resp.status_code == 201, resp.text
+
+    def advance(delta) -> None:
+        original(delta)
+        for name, login, password in (
+            ("admin_client", ADMIN_LOGIN, ADMIN_PASSWORD),
+            ("manager_client", MANAGER_LOGIN, MANAGER_PASSWORD),
+        ):
+            if name in request.fixturenames:
+                relogin(request.getfixturevalue(name), login, password)
+        for tc in extra:
+            relogin(tc, ADMIN_LOGIN, ADMIN_PASSWORD)
+
+    monkeypatch.setattr(clock, "advance", advance)
+    return extra
+
+
+@pytest.fixture
+def restart(spm_app_module, config, clock, client_factory, accounts, keep_sessions):
+    """Start the system again on the same database, logs and clock.
+
+    Returns ``(app, admin_client)``; nothing runs by itself — the test calls
+    ``app.state.updates.startup()`` as the process does right after start.
+    """
+    from helpers import ADMIN_LOGIN, ADMIN_PASSWORD
+
+    def start():
+        application = spm_app_module.create_app(config, clock=clock)
+        tc = client_factory(application)
+        resp = tc.post(
+            "/api/v1/sessions", json={"login": ADMIN_LOGIN, "password": ADMIN_PASSWORD}
+        )
+        assert resp.status_code == 201, resp.text
+        keep_sessions.append(tc)
+        return application, tc
+
+    return start
+
+
+@pytest.fixture
+def worker(config) -> Iterator[Callable[..., object]]:
+    """Run an update in a separate process that the test can kill.
+
+    ``worker(moment, trigger, started_by)`` starts ``tests/update_worker.py``:
+    a process of the system on the same database and logs, with a controlled
+    clock fixed at ``moment``, that performs one run. ``.kill()`` stops it the
+    way a stopped system process stops (REQ-F-024).
+    """
+    import os
+    import subprocess
+    import sys
+
+    started: list[subprocess.Popen] = []
+
+    def start(moment: datetime, trigger: str = "scheduled", started_by: str = ""):
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join([str(ROOT / "src"), str(ROOT)])
+        env["PYTHONIOENCODING"] = "utf-8"
+        proc = subprocess.Popen(
+            [
+                sys.executable,
+                str(ROOT / "tests" / "update_worker.py"),
+                str(config.database_path),
+                str(config.action_log_path),
+                str(config.technical_log_path),
+                TEST_SESSION_SECRET,
+                moment.isoformat(),
+                trigger,
+                started_by,
+            ],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        started.append(proc)
+        return proc
+
+    yield start
+    for proc in started:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait(timeout=10)
+        for stream in (proc.stdout, proc.stderr):
+            if stream is not None:
+                stream.close()
