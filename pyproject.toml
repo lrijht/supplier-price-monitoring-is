@@ -38,3 +38,6 @@ extend-exclude = ["node_modules"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
 ignore = ["E501"]  # line length is enforced by ruff format
+
+[tool.setuptools.package-data]
+spm = ["web/templates/*.html"]
