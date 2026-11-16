@@ -1,0 +1,276 @@
+"""Shared fixtures.
+
+Imports of ``spm`` and ``simulator`` happen inside fixtures, so that while the
+code does not exist yet every test fails on its own instead of the whole
+collection failing with one ImportError.
+"""
+
+from __future__ import annotations
+
+import importlib
+import json
+import socket
+import threading
+import time
+from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+
+TEST_SESSION_SECRET = "test-session-secret-not-for-production"
+
+# REQ-NF-013: tests never reach the external network. Only loopback is allowed.
+_LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost"}
+_real_connect = socket.socket.connect
+_real_connect_ex = socket.socket.connect_ex
+
+
+def _check_address(address: object) -> None:
+    if isinstance(address, tuple) and address:
+        host = str(address[0])
+        if host not in _LOCAL_HOSTS and not host.startswith("127."):
+            raise RuntimeError(f"external network access in tests: {address!r}")
+
+
+def _guarded_connect(self: socket.socket, address: object) -> None:
+    _check_address(address)
+    return _real_connect(self, address)
+
+
+def _guarded_connect_ex(self: socket.socket, address: object) -> int:
+    _check_address(address)
+    return _real_connect_ex(self, address)
+
+
+@pytest.fixture(autouse=True)
+def _no_external_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(socket.socket, "connect", _guarded_connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", _guarded_connect_ex)
+
+
+# --- system under test: spm -------------------------------------------------
+
+
+@pytest.fixture
+def spm_config_module():
+    return importlib.import_module("spm.config")
+
+
+@pytest.fixture
+def spm_app_module():
+    return importlib.import_module("spm.app")
+
+
+@pytest.fixture
+def spm_clock_module():
+    return importlib.import_module("spm.clock")
+
+
+@pytest.fixture
+def config_factory(spm_config_module, tmp_path: Path) -> Callable[..., object]:
+    """Build a Config with every path inside tmp_path; keyword overrides."""
+
+    def make(**overrides: object) -> object:
+        values: dict[str, object] = {
+            "session_secret": TEST_SESSION_SECRET,
+            "database_path": tmp_path / "spm.db",
+            "action_log_path": tmp_path / "actions.log",
+            "technical_log_path": tmp_path / "technical.log",
+        }
+        values.update(overrides)
+        return spm_config_module.Config(**values)
+
+    return make
+
+
+@pytest.fixture
+def config(config_factory):
+    return config_factory()
+
+
+@pytest.fixture
+def clock(spm_clock_module):
+    """Controlled clock, 2026-07-15 12:00 Kyiv summer time (UTC+3)."""
+    return spm_clock_module.ManualClock(datetime(2026, 7, 15, 9, 0, tzinfo=UTC))
+
+
+@pytest.fixture
+def app_factory(spm_app_module, config, clock):
+    def make(cfg: object | None = None, clk: object | None = None):
+        return spm_app_module.create_app(cfg or config, clock=clk or clock)
+
+    return make
+
+
+@pytest.fixture
+def app(app_factory):
+    return app_factory()
+
+
+@pytest.fixture
+def client_factory():
+    """Return a function that opens a TestClient (startup and shutdown run)."""
+    from fastapi.testclient import TestClient
+
+    opened: list[TestClient] = []
+
+    def make(application) -> TestClient:
+        tc = TestClient(application, raise_server_exceptions=False)
+        tc.__enter__()
+        opened.append(tc)
+        return tc
+
+    yield make
+    for tc in opened:
+        tc.__exit__(None, None, None)
+
+
+@pytest.fixture
+def client(app, client_factory):
+    return client_factory(app)
+
+
+@pytest.fixture
+def read_log() -> Callable[[Path], list[dict]]:
+    """Read a JSON Lines log file; every non-empty line must be one JSON object."""
+
+    def read(path: Path) -> list[dict]:
+        if not Path(path).exists():
+            return []
+        records = []
+        for line in Path(path).read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                records.append(json.loads(line))
+        return records
+
+    return read
+
+
+@pytest.fixture
+def add_failing_route():
+    """Insert a test-only route that raises, ahead of the app's own routes.
+
+    The route needs no session: per the interface the session check is a
+    dependency of contract operations, not a global middleware.
+    """
+    from fastapi.routing import APIRoute
+
+    def add(application, path: str, message: str) -> None:
+        async def failing_endpoint() -> None:
+            raise RuntimeError(message)
+
+        route = APIRoute(path, failing_endpoint, methods=["GET", "POST"])
+        application.router.routes.insert(0, route)
+
+    return add
+
+
+# --- simulator --------------------------------------------------------------
+
+
+@pytest.fixture
+def simulator_module():
+    return importlib.import_module("simulator")
+
+
+def _supplier(slug: str, name: str, layout: str, prefix: str) -> dict:
+    return {
+        "slug": slug,
+        "name": name,
+        "layout": layout,
+        "mode": "normal",
+        "delay_seconds": 2,
+        "keep_items": 2,
+        "items": [
+            {
+                "sku": f"{prefix}-1",
+                "name": "Плита ДСП біла",
+                "unit": "шт",
+                "price": "1250.50",
+            },
+            {
+                "sku": f"{prefix}-2",
+                "name": "Кромка ПВХ 2 мм",
+                "unit": "м.п.",
+                "price": "18.40",
+            },
+            {
+                "sku": f"{prefix}-3",
+                "name": "Петля накладна",
+                "unit": "шт",
+                "price": None,
+            },
+            {
+                "sku": f"{prefix}-4",
+                "name": "Ручка-скоба 128",
+                "unit": "шт",
+                "price": "95.00",
+            },
+        ],
+    }
+
+
+@pytest.fixture
+def sim_data() -> dict:
+    """Fictional simulator data: 3 suppliers, one per layout, all in normal mode."""
+    return {
+        "suppliers": [
+            _supplier("alfa", "Альфа", "table", "А"),
+            _supplier("beta", "Бета", "cards", "Б"),
+            _supplier("vega", "Вега", "list", "В"),
+        ]
+    }
+
+
+@pytest.fixture
+def sim_data_file(tmp_path: Path, sim_data: dict) -> Path:
+    path = tmp_path / "simulator-data.json"
+    path.write_text(json.dumps(sim_data, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def write_sim_data(sim_data_file: Path) -> Callable[[dict], None]:
+    def write(data: dict) -> None:
+        sim_data_file.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    return write
+
+
+@pytest.fixture
+def sim_client(simulator_module, sim_data_file, client_factory):
+    return client_factory(simulator_module.create_app(sim_data_file))
+
+
+@pytest.fixture
+def live_simulator(simulator_module, sim_data_file) -> Iterator[str]:
+    """Run the simulator on a free loopback port; yield its base URL."""
+    import uvicorn
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+
+    server = uvicorn.Server(
+        uvicorn.Config(
+            simulator_module.create_app(sim_data_file),
+            host="127.0.0.1",
+            port=port,
+            log_level="warning",
+            timeout_graceful_shutdown=1,
+        )
+    )
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 5
+    while not server.started:
+        if time.monotonic() > deadline or not thread.is_alive():
+            raise RuntimeError("simulator did not start on the loopback address")
+        time.sleep(0.02)
+    yield f"http://127.0.0.1:{port}"
+    server.should_exit = True
+    thread.join(timeout=5)
