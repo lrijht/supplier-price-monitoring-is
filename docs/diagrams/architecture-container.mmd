@@ -1,0 +1,24 @@
+%% C4, рівень 2: контейнери (docs/architecture.md, розділ 3; SRS 1.10, REQ-NF-014, REQ-NF-029, REQ-NF-032).
+C4Container
+    title Контейнери: ІС моніторингу цін постачальників
+
+    Person(manager, "Менеджер із закупівель")
+    Person(admin, "Адміністратор")
+    Person(operator, "Особа з доступом до сервера")
+
+    System_Boundary(spm, "ІС моніторингу цін постачальників") {
+        Container(app, "Застосунок", "Python 3.12, FastAPI, Jinja2; src/spm", "Один процес: вебінтерфейс, REST API /api/v1, планувальник оновлень; команда створення облікового запису")
+        ContainerDb(db, "База даних", "SQLite, файл", "Довідники, позиції, прив'язки, ціни дня, події, журнал оновлень, налаштування, облікові записи")
+        Container(logs, "Файли журналів", "рядки JSON, файли на сервері", "Журнал дій і технічний журнал")
+    }
+
+    Container_Ext(sim, "Імітатор постачальників", "Окремий застосунок у /simulator", "Сторінки каталогів за адресами; ціни, асортимент і режими — з файлу даних")
+
+    Rel(manager, app, "Сторінки HTML і JSON", "HTTP")
+    Rel(admin, app, "Сторінки HTML і JSON", "HTTP")
+    Rel(operator, app, "Створює обліковий запис", "командний рядок")
+    Rel(app, db, "Читає і записує", "SQL")
+    Rel(app, logs, "Дописує записи")
+    Rel(app, sim, "Отримує сторінку каталогу", "HTTP GET")
+
+    UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")

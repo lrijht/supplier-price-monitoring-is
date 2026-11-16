@@ -1,0 +1,42 @@
+%% C4, рівень 3: компоненти застосунку src/spm (docs/architecture.md, розділ 4).
+%% Стрілка — залежність «використовує». logging і clock може використовувати будь-який
+%% компонент, тому їхні зв'язки не намальовано. config читається лише під час старту.
+%% Ручний запуск: services задає порт запуску, update його реалізує (стрілка update → services).
+C4Component
+    title Компоненти застосунку (src/spm)
+
+    Person(user, "Менеджер або адміністратор")
+    Person(operator, "Особа з доступом до сервера")
+
+    Container_Boundary(app, "Застосунок, src/spm") {
+        Component(web, "web", "FastAPI, Jinja2", "Екрани HTML, формуються на сервері")
+        Component(api, "api", "FastAPI", "Роутери /api/v1 за spec/openapi.yaml, модель помилок problem+json")
+        Component(auth, "auth", "Python", "Облікові записи, сесії, ролі, команда створення облікового запису")
+        Component(services, "services", "Python", "Довідники, прив'язки, налаштування, порівняння, історія, стрічка; порт запуску")
+        Component(update, "update", "Python", "Отримання сторінок, розбирачі, запуск, планувальник, доганяння")
+        Component(storage, "storage", "sqlite3", "Схема, репозиторії")
+        Component(logging, "logging", "Python", "Журнал дій, технічний журнал, ідентифікатор запиту (middleware)")
+        Component(clock, "clock", "Python", "Керований годинник: київський час, розклад, 8 год сесії")
+        Component(config, "config", "Python", "Конфігурація зі змінних середовища або .env")
+    }
+
+    ContainerDb(db, "База даних", "SQLite")
+    Container(logs, "Файли журналів", "рядки JSON")
+    Container_Ext(sim, "Імітатор постачальників", "/simulator")
+
+    Rel(user, web, "Сторінки HTML", "HTTP")
+    Rel(user, api, "JSON", "HTTP")
+    Rel(operator, auth, "Команда", "командний рядок")
+    Rel(web, auth, "Вхід, сесія, роль")
+    Rel(web, services, "Дії і дані екранів")
+    Rel(api, auth, "Вхід, сесія, роль")
+    Rel(api, services, "Дії і дані операцій")
+    Rel(auth, storage, "Облікові записи")
+    Rel(services, storage, "Читає і записує")
+    Rel(update, services, "Події, налаштування; реалізує порт запуску")
+    Rel(update, storage, "Ціни дня, журнал оновлень")
+    Rel(update, sim, "Сторінка каталогу", "HTTP GET")
+    Rel(storage, db, "SQL")
+    Rel(logging, logs, "Дописує рядки JSON")
+
+    UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
