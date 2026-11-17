@@ -441,6 +441,28 @@
       "mock": {"how": "prefer_example"}
     },
     {
+      "id": "П-38",
+      "operation": "exportMaterialComparisons",
+      "req": ["REQ-F-072", "REQ-F-035", "REQ-NF-031"],
+      "bdd": ["BDD-072"],
+      "session": "manager",
+      "method": "GET",
+      "path": "/exports/material-comparisons",
+      "expect": {"status": 200, "content_type": "text/csv", "headers": ["Content-Disposition"]},
+      "mock": {"how": "default_example"}
+    },
+    {
+      "id": "П-39",
+      "operation": "exportMaterialComparisons",
+      "req": ["REQ-F-072", "REQ-F-059"],
+      "bdd": ["BDD-072"],
+      "session": "admin",
+      "method": "GET",
+      "path": "/exports/material-comparisons?q=лдсп",
+      "expect": {"status": 200, "content_type": "text/csv", "headers": ["Content-Disposition"]},
+      "mock": {"how": "default_example"}
+    },
+    {
       "id": "Н-01",
       "operation": "listMaterialComparisons",
       "req": ["REQ-NF-031", "REQ-NF-021"],
@@ -998,6 +1020,29 @@
       "session": "manager",
       "method": "GET",
       "path": "/material-comparisons",
+      "headers": {"Prefer": "code=500"},
+      "expect": {"status": 500, "code": "internal_error", "absent": ["errors"]},
+      "mock": {"how": "prefer_code"}
+    },
+    {
+      "id": "Н-46",
+      "operation": "exportMaterialComparisons",
+      "req": ["REQ-F-072", "REQ-NF-031", "REQ-NF-021"],
+      "bdd": [],
+      "session": null,
+      "method": "GET",
+      "path": "/exports/material-comparisons",
+      "expect": {"status": 401, "code": "unauthenticated"},
+      "mock": {"how": "security"}
+    },
+    {
+      "id": "Н-47",
+      "operation": "exportMaterialComparisons",
+      "req": ["REQ-NF-018", "REQ-NF-031"],
+      "bdd": [],
+      "session": "manager",
+      "method": "GET",
+      "path": "/exports/material-comparisons",
       "headers": {"Prefer": "code=500"},
       "expect": {"status": 500, "code": "internal_error", "absent": ["errors"]},
       "mock": {"how": "prefer_code"}
