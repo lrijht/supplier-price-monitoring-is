@@ -149,11 +149,11 @@ REQ-ID з SRS 1.9. Прогалини чернетки (ПА-n) вирішила
 | REQ-F-032 | внутрішня поведінка | `GET /run-log-entries`, `GET /runs/{run_id}` (загальний статус, зокрема `in_progress`) | правило обчислення статусу |
 | REQ-F-033 | операція API | `GET /run-log-entries`, `GET /runs/{run_id}` | екран «журнал оновлень»; запуск видно одразу після початку |
 | REQ-F-034 | операція API | `GET /supplier-update-statuses`; поле `last_update_date` у `GET /suppliers` для адміністратора | екран «стан оновлення постачальників» |
-| REQ-F-035 | операція API | `GET /material-comparisons` | екран «загальний список порівняння» |
+| REQ-F-035 | операція API | `GET /material-comparisons`; ті самі рядки — у файлі `GET /exports/material-comparisons` (REQ-F-072) | екран «загальний список порівняння» |
 | REQ-F-036 | операція API | `GET /material-comparisons/{material_id}` | екран «порівняння матеріалу» |
-| REQ-F-037 | внутрішня поведінка | `GET /material-comparisons…` | правило відбору цін для найдешевшої |
+| REQ-F-037 | внутрішня поведінка | `GET /material-comparisons…`, `GET /exports/material-comparisons` | правило відбору цін для найдешевшої |
 | REQ-F-038 | внутрішня поведінка | `GET /material-comparisons/{material_id}` (`stale`) | правило застарілості |
-| REQ-F-039 | операція API | `GET /material-comparisons…` | властивість операції: відповідь формується в момент запиту, без кешу |
+| REQ-F-039 | операція API | `GET /material-comparisons…`, `GET /exports/material-comparisons` | властивість операції: відповідь формується в момент запиту, без кешу |
 | REQ-F-040 | операція API | `GET /materials/{material_id}/price-history` | екран історії матеріалу |
 | REQ-F-041 | внутрішня поведінка | `GET /materials/{material_id}/price-history?period=all` | безстрокове зберігання; операції видалення немає |
 | REQ-F-042 | операція API | `GET /events` | стрічка змін |
@@ -173,7 +173,7 @@ REQ-ID з SRS 1.9. Прогалини чернетки (ПА-n) вирішила
 | REQ-F-056 | внутрішня поведінка | `GET /runs/{run_id}`, `GET /events` | наслідки `PATCH /suppliers/{supplier_id}` |
 | REQ-F-057 | операція API | параметр `page`, обгортка сторінки і фіксований порядок у списках | задає порядок і сторінки відповіді |
 | REQ-F-058 | операція API | `GET /events?material_id=&supplier_id=&kind=` | фільтри — параметри запиту |
-| REQ-F-059 | операція API | `GET /material-comparisons?q=` | пошук — параметр запиту |
+| REQ-F-059 | операція API | `GET /material-comparisons?q=`, `GET /exports/material-comparisons?q=` | пошук — параметр запиту |
 | REQ-F-060 | внутрішня поведінка | `GET /runs/{run_id}` (`warnings`, `duplicate_sku`) | правило розбору |
 | REQ-F-061 | внутрішня поведінка | `GET /runs/{run_id}` (`warnings`, `unparsed_row`) | правило розбору |
 | REQ-F-062 | внутрішня поведінка | `GET /runs/{run_id}` (`warnings`, `non_positive_price`) | правило розбору |
@@ -186,8 +186,9 @@ REQ-ID з SRS 1.9. Прогалини чернетки (ПА-n) вирішила
 | REQ-F-069 | операція API | `GET /materials/{material_id}/links`, `PUT` і `DELETE /supplier-items/{supplier_item_id}/link` | перелік прив'язаних позицій і дії в ньому |
 | REQ-F-070 | операція API | `GET /materials`, `GET /suppliers` для менеджера (лише `id`, `name`, `active`); 403 на `PATCH /materials/{material_id}` і `PATCH /suppliers/{supplier_id}` | читання списків менеджером — функція API (Р-121); заборона змінювати — критерій REQ-F-070 |
 | REQ-F-071 | операція API | `GET /sessions/current` | читання поточної сесії — функція API (Р-122) |
+| REQ-F-072 | операція API | `GET /exports/material-comparisons` (операція 29, `text/csv`); посилання «Завантажити CSV» на екрані загального списку порівняння | вивантаження в CSV — дія користувача (Р-129); відповідь — файл, а не JSON (виняток REQ-NF-031) |
 
-Разом 71 вимога: операції API — 35, з них 2 мають і внутрішню частину (REQ-F-049, REQ-F-063);
+Разом 72 вимоги: операції API — 36, з них 2 мають і внутрішню частину (REQ-F-049, REQ-F-063);
 внутрішня поведінка — 35; поза API — 1 (REQ-F-006).
 
 ## 2. Модель ресурсів
@@ -511,7 +512,8 @@ REQ-ID з SRS 1.9. Прогалини чернетки (ПА-n) вирішила
 лише вихід (3) і зняття прив'язки (17), і вони записів не видаляють (REQ-NF-031, Р-118).
 
 Перевірка за критерієм REQ-NF-031. Кожен з 11 екранів REQ-NF-003 має операцію:
-- загальний список порівняння — 18;
+- загальний список порівняння — 18; вивантаження його в CSV за посиланням «Завантажити CSV» — 29
+  (REQ-F-072);
 - порівняння матеріалу — 19;
 - історія матеріалу — 20 (вибір матеріалу — 9);
 - стрічка змін — 21 (фільтри — 9, 4);
@@ -524,6 +526,9 @@ REQ-ID з SRS 1.9. Прогалини чернетки (ПА-n) вирішила
 - налаштування — 23.
 
 Функції лише API: REQ-F-070 — 4 і 9 для менеджера; REQ-F-071 — 2.
+
+Вивантаження CSV (REQ-F-072) — 29. Це єдина операція, що відповідає не JSON, а `text/csv`; її
+помилки (401, 500) — у моделі помилок API, як вимагає REQ-NF-031 після адендума A-06.
 
 ## 4. Модель помилок
 
