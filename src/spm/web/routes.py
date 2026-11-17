@@ -24,7 +24,13 @@ from spm.auth.service import (
 from spm.clock import to_kyiv
 from spm.services import (
     EVENT_KINDS,
+    MATERIAL,
     PERIODS,
+    RUN,
+    SETTINGS,
+    SUPPLIER,
+    SUPPLIER_ITEM,
+    VOLUME_ACCEPTANCE,
     Actor,
     Conflict,
     Directories,
@@ -255,7 +261,7 @@ def supplier_form(request, account, *, heading, action, values, errors, status=2
 
 @router.get("/suppliers")
 async def suppliers_screen(request: Request) -> Response:
-    account = admin_screen(request, action="supplier_list", object_type="supplier")
+    account = admin_screen(request, action="supplier_list", object_type=SUPPLIER)
     if not isinstance(account, Account):
         return account
     page = directories(request).list_suppliers(page_number(request))
@@ -264,7 +270,7 @@ async def suppliers_screen(request: Request) -> Response:
 
 @router.get("/suppliers/new")
 async def new_supplier_screen(request: Request) -> Response:
-    account = admin_screen(request, action="supplier_create", object_type="supplier")
+    account = admin_screen(request, action="supplier_create", object_type=SUPPLIER)
     if not isinstance(account, Account):
         return account
     values = {"name": "", "catalog_url": "", "parser": "", "active": True}
@@ -280,7 +286,7 @@ async def new_supplier_screen(request: Request) -> Response:
 
 @router.post("/suppliers")
 async def create_supplier(request: Request) -> Response:
-    account = admin_screen(request, action="supplier_create", object_type="supplier")
+    account = admin_screen(request, action="supplier_create", object_type=SUPPLIER)
     if not isinstance(account, Account):
         return account
     values = supplier_values(await form_data(request))
@@ -303,7 +309,7 @@ async def create_supplier(request: Request) -> Response:
 async def supplier_screen(request: Request, supplier_id: str) -> Response:
     sid = int_or_none(supplier_id)
     account = admin_screen(
-        request, action="supplier_read", object_type="supplier", object_id=sid
+        request, action="supplier_read", object_type=SUPPLIER, object_id=sid
     )
     if not isinstance(account, Account):
         return account
@@ -331,7 +337,7 @@ async def supplier_screen(request: Request, supplier_id: str) -> Response:
 async def update_supplier(request: Request, supplier_id: str) -> Response:
     sid = int_or_none(supplier_id)
     account = admin_screen(
-        request, action="supplier_update", object_type="supplier", object_id=sid
+        request, action="supplier_update", object_type=SUPPLIER, object_id=sid
     )
     if not isinstance(account, Account):
         return account
@@ -368,7 +374,7 @@ def material_values(form: dict[str, str]) -> dict:
 
 @router.get("/materials")
 async def materials_screen(request: Request) -> Response:
-    account = admin_screen(request, action="material_list", object_type="material")
+    account = admin_screen(request, action="material_list", object_type=MATERIAL)
     if not isinstance(account, Account):
         return account
     page = directories(request).list_materials(page_number(request))
@@ -377,7 +383,7 @@ async def materials_screen(request: Request) -> Response:
 
 @router.get("/materials/new")
 async def new_material_screen(request: Request) -> Response:
-    account = admin_screen(request, action="material_create", object_type="material")
+    account = admin_screen(request, action="material_create", object_type=MATERIAL)
     if not isinstance(account, Account):
         return account
     return render(
@@ -392,7 +398,7 @@ async def new_material_screen(request: Request) -> Response:
 
 @router.post("/materials")
 async def create_material(request: Request) -> Response:
-    account = admin_screen(request, action="material_create", object_type="material")
+    account = admin_screen(request, action="material_create", object_type=MATERIAL)
     if not isinstance(account, Account):
         return account
     values = material_values(await form_data(request))
@@ -415,7 +421,7 @@ async def create_material(request: Request) -> Response:
 async def material_screen(request: Request, material_id: str) -> Response:
     mid = int_or_none(material_id)
     account = admin_screen(
-        request, action="material_read", object_type="material", object_id=mid
+        request, action="material_read", object_type=MATERIAL, object_id=mid
     )
     if not isinstance(account, Account):
         return account
@@ -441,7 +447,7 @@ async def material_screen(request: Request, material_id: str) -> Response:
 async def update_material(request: Request, material_id: str) -> Response:
     mid = int_or_none(material_id)
     account = admin_screen(
-        request, action="material_update", object_type="material", object_id=mid
+        request, action="material_update", object_type=MATERIAL, object_id=mid
     )
     if not isinstance(account, Account):
         return account
@@ -469,7 +475,7 @@ async def update_material(request: Request, material_id: str) -> Response:
 async def material_links_screen(request: Request, material_id: str) -> Response:
     mid = int_or_none(material_id)
     account = admin_screen(
-        request, action="material_links_read", object_type="material", object_id=mid
+        request, action="material_links_read", object_type=MATERIAL, object_id=mid
     )
     if not isinstance(account, Account):
         return account
@@ -488,7 +494,7 @@ async def material_links_screen(request: Request, material_id: str) -> Response:
 @router.get("/unlinked-items")
 async def unlinked_items_screen(request: Request) -> Response:
     account = admin_screen(
-        request, action="unlinked_items_read", object_type="supplier_item"
+        request, action="unlinked_items_read", object_type=SUPPLIER_ITEM
     )
     if not isinstance(account, Account):
         return account
@@ -519,7 +525,7 @@ def link_choice(request, account, item, q, errors, status=200) -> HTMLResponse:
 async def link_choice_screen(request: Request, supplier_item_id: str) -> Response:
     item_id = int_or_none(supplier_item_id)
     account = admin_screen(
-        request, action="link_create", object_type="supplier_item", object_id=item_id
+        request, action="link_create", object_type=SUPPLIER_ITEM, object_id=item_id
     )
     if not isinstance(account, Account):
         return account
@@ -536,7 +542,7 @@ async def link_choice_screen(request: Request, supplier_item_id: str) -> Respons
 async def link_item(request: Request, supplier_item_id: str) -> Response:
     item_id = int_or_none(supplier_item_id)
     account = admin_screen(
-        request, action="link_create", object_type="supplier_item", object_id=item_id
+        request, action="link_create", object_type=SUPPLIER_ITEM, object_id=item_id
     )
     if not isinstance(account, Account):
         return account
@@ -563,7 +569,7 @@ async def link_item(request: Request, supplier_item_id: str) -> Response:
 async def unlink_item(request: Request, supplier_item_id: str) -> Response:
     item_id = int_or_none(supplier_item_id)
     account = admin_screen(
-        request, action="link_remove", object_type="supplier_item", object_id=item_id
+        request, action="link_remove", object_type=SUPPLIER_ITEM, object_id=item_id
     )
     if not isinstance(account, Account):
         return account
@@ -581,7 +587,7 @@ async def unlink_item(request: Request, supplier_item_id: str) -> Response:
 
 @router.get("/settings")
 async def settings_screen(request: Request) -> Response:
-    account = admin_screen(request, action="settings_read", object_type="settings")
+    account = admin_screen(request, action="settings_read", object_type=SETTINGS)
     if not isinstance(account, Account):
         return account
     settings = settings_service(request).get()
@@ -594,7 +600,7 @@ async def settings_screen(request: Request) -> Response:
 
 @router.post("/settings")
 async def update_settings(request: Request) -> Response:
-    account = admin_screen(request, action="settings_update", object_type="settings")
+    account = admin_screen(request, action="settings_update", object_type=SETTINGS)
     if not isinstance(account, Account):
         return account
     form = await form_data(request)
@@ -744,7 +750,7 @@ def run_log_page(request, account, errors: list[str], status: int = 200):
 
 @router.get("/run-log-entries")
 async def run_log_screen(request: Request) -> Response:
-    account = admin_screen(request, action="run_log_read", object_type="run")
+    account = admin_screen(request, action="run_log_read", object_type=RUN)
     if not isinstance(account, Account):
         return account
     return run_log_page(request, account, [])
@@ -752,7 +758,7 @@ async def run_log_screen(request: Request) -> Response:
 
 @router.post("/runs")
 async def manual_run(request: Request) -> Response:
-    account = admin_screen(request, action="manual_run", object_type="run")
+    account = admin_screen(request, action="manual_run", object_type=RUN)
     if not isinstance(account, Account):
         return account
     try:
@@ -765,7 +771,7 @@ async def manual_run(request: Request) -> Response:
 @router.post("/volume-acceptances")
 async def accept_volume(request: Request) -> Response:
     account = admin_screen(
-        request, action="volume_accept", object_type="volume_acceptance"
+        request, action="volume_accept", object_type=VOLUME_ACCEPTANCE
     )
     if not isinstance(account, Account):
         return account
@@ -952,7 +958,7 @@ async def events_screen(request: Request) -> Response:
 @router.get("/attention-items")
 async def attention_items_screen(request: Request) -> Response:
     account = admin_screen(
-        request, action="attention_items_read", object_type="supplier_item"
+        request, action="attention_items_read", object_type=SUPPLIER_ITEM
     )
     if not isinstance(account, Account):
         return account

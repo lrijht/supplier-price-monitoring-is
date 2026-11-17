@@ -39,7 +39,14 @@ from spm.auth.service import (
 from spm.clock import to_kyiv
 from spm.services import (
     EVENT_KINDS,
+    MATERIAL,
+    PARSER,
     PERIODS,
+    RUN,
+    SETTINGS,
+    SUPPLIER,
+    SUPPLIER_ITEM,
+    VOLUME_ACCEPTANCE,
     Actor,
     AttentionItem,
     ComparisonListRow,
@@ -411,7 +418,7 @@ async def list_suppliers(request: Request) -> Response:
 @router.post("/suppliers")
 async def create_supplier(request: Request) -> Response:
     account = authenticate(request)
-    require_admin(request, account, action="supplier_create", object_type="supplier")
+    require_admin(request, account, action="supplier_create", object_type=SUPPLIER)
     service = directories(request)
     who = actor(account)
     fields = await _body(
@@ -419,7 +426,7 @@ async def create_supplier(request: Request) -> Response:
         SUPPLIER_INPUT,
         SUPPLIER_READ_ONLY,
         on_reject=lambda code: service.record_rejected(
-            who, "supplier_create", "supplier", None, code
+            who, "supplier_create", SUPPLIER, None, code
         ),
     )
     supplier = service_call(
@@ -440,7 +447,7 @@ async def get_supplier(request: Request, supplier_id: str) -> Response:
         request,
         account,
         action="supplier_read",
-        object_type="supplier",
+        object_type=SUPPLIER,
         object_id=supplier_id,
     )
     sid = path_id(supplier_id, "supplier_id")
@@ -454,7 +461,7 @@ async def update_supplier(request: Request, supplier_id: str) -> Response:
         request,
         account,
         action="supplier_update",
-        object_type="supplier",
+        object_type=SUPPLIER,
         object_id=supplier_id,
     )
     sid = path_id(supplier_id, "supplier_id")
@@ -466,7 +473,7 @@ async def update_supplier(request: Request, supplier_id: str) -> Response:
         SUPPLIER_INPUT,
         SUPPLIER_READ_ONLY,
         on_reject=lambda code: service.record_rejected(
-            who, "supplier_update", "supplier", sid, code
+            who, "supplier_update", SUPPLIER, sid, code
         ),
     )
     supplier = service_call(service.update_supplier, who, sid, fields)
@@ -476,7 +483,7 @@ async def update_supplier(request: Request, supplier_id: str) -> Response:
 @router.get("/parsers")
 async def list_parsers(request: Request) -> Response:
     account = authenticate(request)
-    require_admin(request, account, action="parser_list", object_type="parser")
+    require_admin(request, account, action="parser_list", object_type=PARSER)
     return json({"items": directories(request).parsers()})
 
 
@@ -496,7 +503,7 @@ async def list_materials(request: Request) -> Response:
 @router.post("/materials")
 async def create_material(request: Request) -> Response:
     account = authenticate(request)
-    require_admin(request, account, action="material_create", object_type="material")
+    require_admin(request, account, action="material_create", object_type=MATERIAL)
     service = directories(request)
     who = actor(account)
     fields = await _body(
@@ -504,7 +511,7 @@ async def create_material(request: Request) -> Response:
         MATERIAL_INPUT,
         MATERIAL_READ_ONLY,
         on_reject=lambda code: service.record_rejected(
-            who, "material_create", "material", None, code
+            who, "material_create", MATERIAL, None, code
         ),
     )
     material = service_call(
@@ -524,7 +531,7 @@ async def get_material(request: Request, material_id: str) -> Response:
         request,
         account,
         action="material_read",
-        object_type="material",
+        object_type=MATERIAL,
         object_id=material_id,
     )
     mid = path_id(material_id, "material_id")
@@ -538,7 +545,7 @@ async def update_material(request: Request, material_id: str) -> Response:
         request,
         account,
         action="material_update",
-        object_type="material",
+        object_type=MATERIAL,
         object_id=material_id,
     )
     mid = path_id(material_id, "material_id")
@@ -550,7 +557,7 @@ async def update_material(request: Request, material_id: str) -> Response:
         MATERIAL_INPUT,
         MATERIAL_READ_ONLY,
         on_reject=lambda code: service.record_rejected(
-            who, "material_update", "material", mid, code
+            who, "material_update", MATERIAL, mid, code
         ),
     )
     material = service_call(service.update_material, who, mid, fields)
@@ -564,7 +571,7 @@ async def list_material_links(request: Request, material_id: str) -> Response:
         request,
         account,
         action="material_links_read",
-        object_type="material",
+        object_type=MATERIAL,
         object_id=material_id,
     )
     mid = path_id(material_id, "material_id")
@@ -581,7 +588,7 @@ async def list_material_links(request: Request, material_id: str) -> Response:
 async def list_unlinked_items(request: Request) -> Response:
     account = authenticate(request)
     require_admin(
-        request, account, action="unlinked_items_read", object_type="supplier_item"
+        request, account, action="unlinked_items_read", object_type=SUPPLIER_ITEM
     )
     page, _ = list_query(request)
     q = request.query_params.get("q")
@@ -593,7 +600,7 @@ async def list_unlinked_items(request: Request) -> Response:
 async def list_attention_items(request: Request) -> Response:
     account = authenticate(request)
     require_admin(
-        request, account, action="attention_items_read", object_type="supplier_item"
+        request, account, action="attention_items_read", object_type=SUPPLIER_ITEM
     )
     page, _ = list_query(request)
     result = views_service(request).attention_items(page)
@@ -607,7 +614,7 @@ async def put_supplier_item_link(request: Request, supplier_item_id: str) -> Res
         request,
         account,
         action="link_create",
-        object_type="supplier_item",
+        object_type=SUPPLIER_ITEM,
         object_id=supplier_item_id,
     )
     item_id = path_id(supplier_item_id, "supplier_item_id")
@@ -638,7 +645,7 @@ async def delete_supplier_item_link(
         request,
         account,
         action="link_remove",
-        object_type="supplier_item",
+        object_type=SUPPLIER_ITEM,
         object_id=supplier_item_id,
     )
     item_id = path_id(supplier_item_id, "supplier_item_id")
@@ -722,14 +729,14 @@ async def list_events(request: Request) -> Response:
 @router.get("/settings")
 async def get_settings(request: Request) -> Response:
     account = authenticate(request)
-    require_admin(request, account, action="settings_read", object_type="settings")
+    require_admin(request, account, action="settings_read", object_type=SETTINGS)
     return json(settings_json(settings_service(request).get()))
 
 
 @router.patch("/settings")
 async def update_settings(request: Request) -> Response:
     account = authenticate(request)
-    require_admin(request, account, action="settings_update", object_type="settings")
+    require_admin(request, account, action="settings_update", object_type=SETTINGS)
     service = settings_service(request)
     who = actor(account)
     fields = await _body(
@@ -761,7 +768,7 @@ async def list_supplier_update_statuses(request: Request) -> Response:
 async def create_run(request: Request) -> Response:
     """No body and no Content-Type (contract, operation 25)."""
     account = authenticate(request)
-    require_admin(request, account, action="manual_run", object_type="run")
+    require_admin(request, account, action="manual_run", object_type=RUN)
     result = service_call(runs_service(request).start_manual, actor(account))
     if isinstance(result, Run):
         return json(run_json(result), 202, f"{API_PREFIX}/runs/{result.id}")
@@ -772,7 +779,7 @@ async def create_run(request: Request) -> Response:
 async def get_run(request: Request, run_id: str) -> Response:
     account = authenticate(request)
     require_admin(
-        request, account, action="run_read", object_type="run", object_id=run_id
+        request, account, action="run_read", object_type=RUN, object_id=run_id
     )
     rid = path_id(run_id, "run_id")
     return json(run_json(service_call(runs_service(request).get_run, rid)))
@@ -781,7 +788,7 @@ async def get_run(request: Request, run_id: str) -> Response:
 @router.get("/run-log-entries")
 async def list_run_log_entries(request: Request) -> Response:
     account = authenticate(request)
-    require_admin(request, account, action="run_log_read", object_type="run")
+    require_admin(request, account, action="run_log_read", object_type=RUN)
     page, _ = list_query(request)
     result = runs_service(request).list_log(page)
     return json(page_json(result, [log_entry_json(e) for e in result.items]))
@@ -792,7 +799,7 @@ async def create_volume_acceptance(request: Request) -> Response:
     """201 without Location: an acceptance has no address of its own."""
     account = authenticate(request)
     require_admin(
-        request, account, action="volume_accept", object_type="volume_acceptance"
+        request, account, action="volume_accept", object_type=VOLUME_ACCEPTANCE
     )
     service = runs_service(request)
     who = actor(account)
