@@ -159,8 +159,11 @@ STAGES = [
         [f"П-{n:02}" for n in (*range(21, 27), *range(29, 38))]
         + [f"Н-{n:02}" for n in range(1, 45) if n not in (6, 9)],
     ),
+    # A-06, the CSV export: the manager without search, the administrator with
+    # «лдсп», and 401 without a session — on the data of main-2.
+    ("export", ["П-38", "П-39", "Н-46"]),
     ("run-in-progress", ["П-27", "Н-09"]),
-    ("database-locked", ["Н-45"]),
+    ("database-locked", ["Н-45", "Н-47"]),
     ("no-active-suppliers", ["П-28"]),
     ("logout", ["П-03"]),
 ]
@@ -448,7 +451,7 @@ def main() -> int:
             if stage == "run-in-progress":
                 edit_simulator(sim_data, lambda s: s["arka"].update(mode="slow"))
             elif stage == "database-locked":
-                # The artificial failure of Н-45: the database is held by
+                # The artificial failure of Н-45 and Н-47: the database is held by
                 # another connection, so the request fails after the busy
                 # timeout and the server answers 500.
                 lock = sqlite3.connect(database, isolation_level=None)
