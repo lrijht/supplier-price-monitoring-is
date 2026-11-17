@@ -236,7 +236,7 @@ class UpdateRunner:
                 self._actions.write(
                     level="warning", event="run_interrupted", run_id=run.id
                 )
-        interrupted = last is not None and last.status == "interrupted"
+        interrupted = last is not None and last.status == updates.RUN_INTERRUPTED
         if not (missed or interrupted):
             return None
         # A catch-up for a missed time replaces the day's scheduled run; one only
@@ -303,7 +303,7 @@ class UpdateRunner:
                 if not suppliers:
                     entry_id = updates.insert_log_entry(
                         conn,
-                        kind="no_active_suppliers",
+                        kind=updates.ENTRY_NO_ACTIVE_SUPPLIERS,
                         occurred_at=now,
                         day=day,
                         trigger=MANUAL if trigger == MANUAL else SCHEDULED,
@@ -326,7 +326,7 @@ class UpdateRunner:
                     )
                     updates.insert_log_entry(
                         conn,
-                        kind="run",
+                        kind=updates.ENTRY_RUN,
                         occurred_at=now,
                         day=day,
                         run_id=run_id,
@@ -368,7 +368,7 @@ class UpdateRunner:
         with self._db.transaction() as conn:
             entry_id = updates.insert_log_entry(
                 conn,
-                kind="skipped",
+                kind=updates.ENTRY_SKIPPED,
                 occurred_at=now,
                 day=kyiv_date(now),
                 counts_as_scheduled=True,
@@ -550,7 +550,7 @@ class UpdateRunner:
                 ):
                     updates.insert_event(
                         conn,
-                        kind="disappeared",
+                        kind=updates.EVENT_DISAPPEARED,
                         event_date=day,
                         created_at=now,
                         material_id=link.material_id,
@@ -602,7 +602,9 @@ class UpdateRunner:
             "item_id": link.item_id,
         }
         if state.base is None:
-            updates.insert_event(conn, kind="appeared", price=price, **common)
+            updates.insert_event(
+                conn, kind=updates.EVENT_APPEARED, price=price, **common
+            )
             state.base = price
             return
         change = price - state.base
@@ -612,7 +614,7 @@ class UpdateRunner:
         percent = (change * 100 / state.base).quantize(_PERCENT_STEP, ROUND_HALF_UP)
         updates.insert_event(
             conn,
-            kind="price_change",
+            kind=updates.EVENT_PRICE_CHANGE,
             old_price=state.base,
             new_price=price,
             change_percent=percent,

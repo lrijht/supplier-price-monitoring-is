@@ -19,13 +19,17 @@ from spm.services.directories import normalize_unit
 from spm.services.errors import NotFound
 from spm.services.ordering import Page, matches, paginate, sort_by
 from spm.services.runs import SupplierRef
-from spm.storage import Database, repositories, views
+from spm.storage import Database, repositories, updates, views
 from spm.storage.repositories import MaterialRow, SupplierRow
 
 # REQ-F-038: a price more than 2 days older than today is stale.
 STALE_AFTER_DAYS = 2
 PERIODS = {"last_7_days": 7, "last_30_days": 30, "all": None}  # REQ-F-040
-EVENT_KINDS = ("price_change", "appeared", "disappeared")
+EVENT_KINDS = (
+    updates.EVENT_PRICE_CHANGE,
+    updates.EVENT_APPEARED,
+    updates.EVENT_DISAPPEARED,
+)
 _PERCENT = Decimal("0.1")
 _MONEY = Decimal("0.01")
 
