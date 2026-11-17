@@ -39,9 +39,7 @@ SupplierItem = SupplierItemRow
 SUPPLIER = "supplier"
 MATERIAL = "material"
 SUPPLIER_ITEM = "supplier_item"
-
-SUPPLIER_FIELDS = ("name", "catalog_url", "parser", "active")
-MATERIAL_FIELDS = ("name", "unit", "active")
+PARSER = "parser"
 
 
 @dataclass(frozen=True, slots=True)

@@ -24,7 +24,7 @@ from spm.services.errors import (
     ServiceError,
     ValidationFailed,
 )
-from spm.services.ordering import PAGE_SIZE, Page, paginate, sort_by
+from spm.services.ordering import PAGE_SIZE, Page, page_count, paginate, sort_by
 from spm.storage import Database, repositories, updates
 
 RUN = "run"
@@ -199,7 +199,7 @@ class Runs:
             items=entries,
             page=page,
             total_items=total,
-            total_pages=-(-total // PAGE_SIZE),
+            total_pages=page_count(total),
         )
 
     @staticmethod
@@ -224,7 +224,7 @@ class Runs:
             )
             # The trigger of an entry is only the cause of «немає активних
             # постачальників» (contract, RunLogEntry.trigger).
-            trigger = r.trigger if r.kind == "no_active_suppliers" else None
+            trigger = r.trigger if r.kind == updates.ENTRY_NO_ACTIVE_SUPPLIERS else None
             entries.append(RunLogEntry(r.kind, r.occurred_at, trigger, run, acceptance))
         return entries
 
@@ -289,7 +289,7 @@ class Runs:
                 )
                 updates.insert_log_entry(
                     conn,
-                    kind="volume_acceptance",
+                    kind=updates.ENTRY_VOLUME_ACCEPTANCE,
                     occurred_at=now,
                     day=to_kyiv(now).date(),
                     volume_acceptance_id=acceptance_id,

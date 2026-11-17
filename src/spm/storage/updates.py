@@ -16,6 +16,17 @@ from decimal import Decimal
 
 from spm.clock import to_kyiv
 
+# Values of the kind and status columns (storage/schema.py) that code compares
+# and writes; the SQL of this module uses the same values in its text.
+ENTRY_RUN = "run"
+ENTRY_SKIPPED = "skipped"
+ENTRY_NO_ACTIVE_SUPPLIERS = "no_active_suppliers"
+ENTRY_VOLUME_ACCEPTANCE = "volume_acceptance"
+EVENT_PRICE_CHANGE = "price_change"
+EVENT_APPEARED = "appeared"
+EVENT_DISAPPEARED = "disappeared"
+RUN_INTERRUPTED = "interrupted"
+
 # --- moments ---------------------------------------------------------------------------
 
 
@@ -534,13 +545,6 @@ def upsert_item(
         (name, unit, seen.isoformat(), row["id"]),
     )
     return int(row["id"])
-
-
-def item_ids_by_sku(conn: sqlite3.Connection, supplier_id: int) -> dict[str, int]:
-    rows = conn.execute(
-        "SELECT id, sku FROM supplier_items WHERE supplier_id = ?", (supplier_id,)
-    ).fetchall()
-    return {r["sku"]: r["id"] for r in rows}
 
 
 def feed_state(conn: sqlite3.Connection, item_id: int) -> FeedState:

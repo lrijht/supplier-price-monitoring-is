@@ -41,8 +41,31 @@ REASON_TEXT = {
 }
 # REQ-F-030: fewer than 80 % of the volume base is an incomplete crawl.
 COMPLETE_SHARE = (4, 5)
+# REQ-F-047: «зник» after two runs with "успіх" on different dates without the item.
+DISAPPEAR_AFTER_ABSENCES = 2
 TICK_SECONDS = 0.5  # the background scheduler checks the clock twice a second
+SCHEDULER_STOP_SECONDS = 5  # how long stopping waits for the scheduler thread
+# The threshold is kept in tenths of a percent: 100 % is 1000 tenths.
+_TENTHS_IN_WHOLE = 1000
 _PERCENT_STEP = Decimal("0.1")
+
+
+def crawl_status(count: int, base: int | None) -> str:
+    """The supplier's status by its volume base (REQ-F-030): "частково" for an
+    incomplete crawl, otherwise "успіх"."""
+    share_num, share_den = COMPLETE_SHARE
+    if base is not None and count * share_den < base * share_num:
+        return PARTIAL
+    return SUCCESS
+
+
+def overall_status(statuses: list[str]) -> str:
+    """The status of the run from its suppliers' statuses (REQ-F-032)."""
+    if all(s == SUCCESS for s in statuses):
+        return SUCCESS
+    if all(s == ERROR for s in statuses):
+        return ERROR
+    return PARTIAL
 
 
 def timeout_text(seconds: float) -> str:
@@ -236,7 +259,7 @@ class UpdateRunner:
                 self._actions.write(
                     level="warning", event="run_interrupted", run_id=run.id
                 )
-        interrupted = last is not None and last.status == "interrupted"
+        interrupted = last is not None and last.status == updates.RUN_INTERRUPTED
         if not (missed or interrupted):
             return None
         # A catch-up for a missed time replaces the day's scheduled run; one only
@@ -262,7 +285,7 @@ class UpdateRunner:
     def stop_background(self) -> None:
         self._stop.set()
         if self._scheduler is not None:
-            self._scheduler.join(timeout=5)
+            self._scheduler.join(timeout=SCHEDULER_STOP_SECONDS)
             self._scheduler = None
 
     def _loop(self) -> None:
@@ -295,6 +318,9 @@ class UpdateRunner:
     ) -> Began | NoActive | _Busy:
         now = self._clock.now()
         day = kyiv_date(now)
+        # «немає активних постачальників» names only its cause: the button or
+        # the schedule (a catch-up counts as the schedule).
+        entry_trigger = MANUAL if trigger == MANUAL else SCHEDULED
         with self._guard:
             if self._busy:
                 return BUSY
@@ -303,45 +329,22 @@ class UpdateRunner:
                 if not suppliers:
                     entry_id = updates.insert_log_entry(
                         conn,
-                        kind="no_active_suppliers",
+                        kind=updates.ENTRY_NO_ACTIVE_SUPPLIERS,
                         occurred_at=now,
                         day=day,
-                        trigger=MANUAL if trigger == MANUAL else SCHEDULED,
+                        trigger=entry_trigger,
                         counts_as_scheduled=counts,
                     )
                     began: Began | NoActive = NoActive(entry_id)
                 else:
-                    suppliers = sort_by(suppliers, lambda s: s.name)
-                    threshold = repositories.get_settings(
-                        conn
-                    ).notification_threshold_tenths
-                    links = {link.item_id: link for link in updates.links(conn)}
-                    run_id = updates.insert_run(
+                    began = self._open_run(
                         conn,
+                        suppliers,
                         trigger=trigger,
-                        started_at=now,
-                        started_by=started_by if trigger == MANUAL else None,
-                        price_date=day,
-                        supplier_ids=[s.id for s in suppliers],
-                    )
-                    updates.insert_log_entry(
-                        conn,
-                        kind="run",
-                        occurred_at=now,
-                        day=day,
-                        run_id=run_id,
-                        counts_as_scheduled=counts,
-                    )
-                    began = Began(
-                        run_id,
-                        request_id or str(run_id),
-                        day,
-                        [
-                            SupplierSnapshot(s.id, s.name, s.catalog_url, s.parser)
-                            for s in suppliers
-                        ],
-                        links,
-                        threshold,
+                        started_by=started_by,
+                        now=now,
+                        request_id=request_id,
+                        counts=counts,
                     )
             if isinstance(began, Began):
                 self._busy = True
@@ -351,7 +354,7 @@ class UpdateRunner:
                     level="info",
                     event="no_active_suppliers",
                     run_log_entry_id=began.log_entry_id,
-                    trigger=MANUAL if trigger == MANUAL else SCHEDULED,
+                    trigger=entry_trigger,
                 )
             return began
         with request_id_scope(began.request_id):
@@ -363,12 +366,57 @@ class UpdateRunner:
             )
         return began
 
+    @staticmethod
+    def _open_run(
+        conn,
+        suppliers: list[repositories.SupplierRow],
+        *,
+        trigger: str,
+        started_by: str | None,
+        now: datetime,
+        request_id: str | None,
+        counts: bool,
+    ) -> Began:
+        """Insert the run with its log entry and take the snapshot of
+        directories and settings the run works with (REQ-F-067)."""
+        day = kyiv_date(now)
+        suppliers = sort_by(suppliers, lambda s: s.name)
+        threshold = repositories.get_settings(conn).notification_threshold_tenths
+        links = {link.item_id: link for link in updates.links(conn)}
+        run_id = updates.insert_run(
+            conn,
+            trigger=trigger,
+            started_at=now,
+            started_by=started_by if trigger == MANUAL else None,
+            price_date=day,
+            supplier_ids=[s.id for s in suppliers],
+        )
+        updates.insert_log_entry(
+            conn,
+            kind=updates.ENTRY_RUN,
+            occurred_at=now,
+            day=day,
+            run_id=run_id,
+            counts_as_scheduled=counts,
+        )
+        return Began(
+            run_id,
+            request_id or str(run_id),
+            day,
+            [
+                SupplierSnapshot(s.id, s.name, s.catalog_url, s.parser)
+                for s in suppliers
+            ],
+            links,
+            threshold,
+        )
+
     def _skipped(self, now: datetime) -> None:
         """REQ-F-022: «пропущено: оновлення вже триває» at the scheduled time."""
         with self._db.transaction() as conn:
             entry_id = updates.insert_log_entry(
                 conn,
-                kind="skipped",
+                kind=updates.ENTRY_SKIPPED,
                 occurred_at=now,
                 day=kyiv_date(now),
                 counts_as_scheduled=True,
@@ -388,13 +436,8 @@ class UpdateRunner:
     def _execute(self, began: Began) -> None:
         try:
             with request_id_scope(began.request_id):
-                statuses = [self._supplier(began, s) for s in began.suppliers]
-                overall = (
-                    SUCCESS
-                    if all(s == SUCCESS for s in statuses)
-                    else ERROR
-                    if all(s == ERROR for s in statuses)
-                    else PARTIAL
+                overall = overall_status(
+                    [self._supplier(began, s) for s in began.suppliers]
                 )
                 with self._db.transaction() as conn:
                     updates.finish_run(conn, began.run_id, overall, self._clock.now())
@@ -492,22 +535,47 @@ class UpdateRunner:
 
     def _write(self, conn, began: Began, supplier: SupplierSnapshot, page: ReadPage):
         """Everything of one supplier in one transaction (REQ-NF-016)."""
-        day = began.price_date
         now = self._clock.now()
         warnings = list(page.warnings)
         count = len(page.items)
         base = updates.volume_base(conn, supplier.id)
-        share_num, share_den = COMPLETE_SHARE
-        status = (
-            PARTIAL
-            if base is not None and count * share_den < base * share_num
-            else SUCCESS
-        )
+        status = crawl_status(count, base)
         own_links = {
             item_id: link
             for item_id, link in began.links.items()
             if link.supplier_id == supplier.id
         }
+        present = self._write_items(
+            conn, began, supplier, page, own_links, status, warnings, now
+        )
+        if status == SUCCESS:
+            self._mark_missing(conn, began, supplier, own_links, present, now)
+            if base is None or count > base:  # REQ-F-052
+                updates.set_volume_base(conn, supplier.id, count)
+        updates.set_supplier_status(
+            conn,
+            began.run_id,
+            supplier.id,
+            status=status,
+            parsed_items_count=count,
+            warnings=warnings,
+        )
+        return status
+
+    def _write_items(
+        self,
+        conn,
+        began: Began,
+        supplier: SupplierSnapshot,
+        page: ReadPage,
+        own_links: dict[int, LinkSnapshot],
+        status: str,
+        warnings: list[dict],
+        now: datetime,
+    ) -> set[int]:
+        """Items of the page, prices and events of the linked ones; returns the
+        ids of the items on the page and adds price warnings to ``warnings``."""
+        day = began.price_date
         present: set[int] = set()
         for item in page.items:
             item_id = updates.upsert_item(
@@ -536,40 +604,42 @@ class UpdateRunner:
                     if link.material_active:  # REQ-F-042, REQ-F-049
                         self._price_event(conn, began, state, item.price, link, now)
             updates.save_feed_state(conn, state)
-        if status == SUCCESS:
-            for item_id, link in own_links.items():
-                if item_id in present:
-                    continue
-                state = updates.feed_state(conn, item_id)
-                missing_from_page(state, day)
-                if (
-                    state.absences >= 2
-                    and not state.disappeared
-                    and state.base is not None
-                    and link.material_active
-                ):
-                    updates.insert_event(
-                        conn,
-                        kind="disappeared",
-                        event_date=day,
-                        created_at=now,
-                        material_id=link.material_id,
-                        supplier_id=supplier.id,
-                        item_id=item_id,
-                    )
-                    state.disappeared = True
-                updates.save_feed_state(conn, state)
-            if base is None or count > base:  # REQ-F-052
-                updates.set_volume_base(conn, supplier.id, count)
-        updates.set_supplier_status(
-            conn,
-            began.run_id,
-            supplier.id,
-            status=status,
-            parsed_items_count=count,
-            warnings=warnings,
-        )
-        return status
+        return present
+
+    @staticmethod
+    def _mark_missing(
+        conn,
+        began: Began,
+        supplier: SupplierSnapshot,
+        own_links: dict[int, LinkSnapshot],
+        present: set[int],
+        now: datetime,
+    ) -> None:
+        """Linked items absent from the page of a run with "успіх": the absence
+        count and «зник» (REQ-F-047, REQ-F-064)."""
+        day = began.price_date
+        for item_id, link in own_links.items():
+            if item_id in present:
+                continue
+            state = updates.feed_state(conn, item_id)
+            missing_from_page(state, day)
+            if (
+                state.absences >= DISAPPEAR_AFTER_ABSENCES
+                and not state.disappeared
+                and state.base is not None
+                and link.material_active
+            ):
+                updates.insert_event(
+                    conn,
+                    kind=updates.EVENT_DISAPPEARED,
+                    event_date=day,
+                    created_at=now,
+                    material_id=link.material_id,
+                    supplier_id=supplier.id,
+                    item_id=item_id,
+                )
+                state.disappeared = True
+            updates.save_feed_state(conn, state)
 
     @staticmethod
     def _price(conn, item: PageItem, link: LinkSnapshot, day: date, *, mismatch):
@@ -602,17 +672,19 @@ class UpdateRunner:
             "item_id": link.item_id,
         }
         if state.base is None:
-            updates.insert_event(conn, kind="appeared", price=price, **common)
+            updates.insert_event(
+                conn, kind=updates.EVENT_APPEARED, price=price, **common
+            )
             state.base = price
             return
         change = price - state.base
         # |new − base| / base × 100 % ≥ threshold, exactly (threshold in tenths).
-        if abs(change) * 1000 < state.base * began.threshold_tenths:
+        if abs(change) * _TENTHS_IN_WHOLE < state.base * began.threshold_tenths:
             return
         percent = (change * 100 / state.base).quantize(_PERCENT_STEP, ROUND_HALF_UP)
         updates.insert_event(
             conn,
-            kind="price_change",
+            kind=updates.EVENT_PRICE_CHANGE,
             old_price=state.base,
             new_price=price,
             change_percent=percent,
