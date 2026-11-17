@@ -21,6 +21,11 @@ from spm.storage import Database, repositories
 
 SESSION_COOKIE = "spm_session"
 SESSION_LIFETIME = timedelta(hours=8)  # REQ-NF-021
+# Attributes of the session cookie for the web interface and the API alike.
+# SameSite=Lax, no Secure: no HTTPS in the trusted local network (ЗП-4).
+SESSION_COOKIE_MAX_AGE = int(SESSION_LIFETIME.total_seconds())
+SESSION_COOKIE_SCOPE = {"path": "/", "httponly": True, "samesite": "lax"}
+WRONG_CREDENTIALS = "Неправильний логін або пароль."
 
 ROLES = ("manager", "admin")
 ADMIN = "admin"

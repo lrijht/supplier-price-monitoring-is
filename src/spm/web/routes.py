@@ -16,7 +16,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from spm.auth import SESSION_COOKIE, Account, AuthService
-from spm.auth.service import SESSION_LIFETIME
+from spm.auth.service import (
+    SESSION_COOKIE_MAX_AGE,
+    SESSION_COOKIE_SCOPE,
+    WRONG_CREDENTIALS,
+)
 from spm.clock import to_kyiv
 from spm.services import (
     EVENT_KINDS,
@@ -37,7 +41,6 @@ TEMPLATES = Environment(
     loader=FileSystemLoader(Path(__file__).resolve().parent / "templates"),
     autoescape=select_autoescape(["html"]),
 )
-WRONG_CREDENTIALS = "Неправильний логін або пароль."
 
 
 # --- formats of the screens (REQ-NF-030; sums with a comma, percents with a sign) ------------
@@ -203,14 +206,8 @@ async def login(request: Request) -> Response:
         )
     _, cookie = opened
     response = redirect("/")
-    # SameSite=Lax, no Secure: no HTTPS in the trusted local network (ЗП-4).
     response.set_cookie(
-        SESSION_COOKIE,
-        cookie,
-        max_age=int(SESSION_LIFETIME.total_seconds()),
-        httponly=True,
-        samesite="lax",
-        path="/",
+        SESSION_COOKIE, cookie, max_age=SESSION_COOKIE_MAX_AGE, **SESSION_COOKIE_SCOPE
     )
     return response
 
@@ -219,7 +216,7 @@ async def login(request: Request) -> Response:
 async def logout(request: Request) -> Response:
     auth(request).logout(request.cookies.get(SESSION_COOKIE))
     response = redirect("/login")
-    response.delete_cookie(SESSION_COOKIE, path="/", httponly=True, samesite="lax")
+    response.delete_cookie(SESSION_COOKIE, **SESSION_COOKIE_SCOPE)
     return response
 
 

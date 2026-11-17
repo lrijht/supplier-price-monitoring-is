@@ -31,7 +31,11 @@ from spm.api.requests import (
     require_json,
 )
 from spm.auth import SESSION_COOKIE, Account
-from spm.auth.service import SESSION_LIFETIME
+from spm.auth.service import (
+    SESSION_COOKIE_MAX_AGE,
+    SESSION_COOKIE_SCOPE,
+    WRONG_CREDENTIALS,
+)
 from spm.clock import to_kyiv
 from spm.services import (
     EVENT_KINDS,
@@ -365,7 +369,7 @@ async def create_session(request: Request) -> Response:
     )
     opened = auth_service(request).login(fields["login"], fields["password"])
     if opened is None:
-        raise ProblemError(401, "invalid_credentials", "Неправильний логін або пароль.")
+        raise ProblemError(401, "invalid_credentials", WRONG_CREDENTIALS)
     account, cookie = opened
     response = json(account_json(account), 201, f"{API_PREFIX}/sessions/current")
     set_session_cookie(response, cookie)
@@ -373,14 +377,8 @@ async def create_session(request: Request) -> Response:
 
 
 def set_session_cookie(response: Response, cookie: str) -> None:
-    # SameSite=Lax, no Secure: no HTTPS in the trusted local network (ЗП-4).
     response.set_cookie(
-        SESSION_COOKIE,
-        cookie,
-        max_age=int(SESSION_LIFETIME.total_seconds()),
-        httponly=True,
-        samesite="lax",
-        path="/",
+        SESSION_COOKIE, cookie, max_age=SESSION_COOKIE_MAX_AGE, **SESSION_COOKIE_SCOPE
     )
 
 
@@ -394,7 +392,7 @@ async def delete_current_session(request: Request) -> Response:
     authenticate(request)
     auth_service(request).logout(request.cookies.get(SESSION_COOKIE))
     response = Response(status_code=204)
-    response.delete_cookie(SESSION_COOKIE, path="/", httponly=True, samesite="lax")
+    response.delete_cookie(SESSION_COOKIE, **SESSION_COOKIE_SCOPE)
     return response
 
 
