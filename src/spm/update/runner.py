@@ -41,7 +41,12 @@ REASON_TEXT = {
 }
 # REQ-F-030: fewer than 80 % of the volume base is an incomplete crawl.
 COMPLETE_SHARE = (4, 5)
+# REQ-F-047: «зник» after two runs with "успіх" on different dates without the item.
+DISAPPEAR_AFTER_ABSENCES = 2
 TICK_SECONDS = 0.5  # the background scheduler checks the clock twice a second
+SCHEDULER_STOP_SECONDS = 5  # how long stopping waits for the scheduler thread
+# The threshold is kept in tenths of a percent: 100 % is 1000 tenths.
+_TENTHS_IN_WHOLE = 1000
 _PERCENT_STEP = Decimal("0.1")
 
 
@@ -280,7 +285,7 @@ class UpdateRunner:
     def stop_background(self) -> None:
         self._stop.set()
         if self._scheduler is not None:
-            self._scheduler.join(timeout=5)
+            self._scheduler.join(timeout=SCHEDULER_STOP_SECONDS)
             self._scheduler = None
 
     def _loop(self) -> None:
@@ -619,7 +624,7 @@ class UpdateRunner:
             state = updates.feed_state(conn, item_id)
             missing_from_page(state, day)
             if (
-                state.absences >= 2
+                state.absences >= DISAPPEAR_AFTER_ABSENCES
                 and not state.disappeared
                 and state.base is not None
                 and link.material_active
@@ -674,7 +679,7 @@ class UpdateRunner:
             return
         change = price - state.base
         # |new − base| / base × 100 % ≥ threshold, exactly (threshold in tenths).
-        if abs(change) * 1000 < state.base * began.threshold_tenths:
+        if abs(change) * _TENTHS_IN_WHOLE < state.base * began.threshold_tenths:
             return
         percent = (change * 100 / state.base).quantize(_PERCENT_STEP, ROUND_HALF_UP)
         updates.insert_event(
