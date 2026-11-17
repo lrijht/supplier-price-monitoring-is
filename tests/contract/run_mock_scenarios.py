@@ -9,7 +9,10 @@ Against the real server use http://localhost:8000/api/v1 --target server.
 
 Checks per scenario: HTTP status, Content-Type of the body, `code` of a problem
 response, `errors[].field`/`errors[].code` pairs, required and absent fields,
-required response headers. Prism answers an unknown path or method in its own
+required response headers. A 2xx body is expected as `application/json`, unless
+the scenario sets `expect.content_type` (`text/csv` of the CSV export, A-06):
+then that type is asked for in `Accept` and checked, and the body is not read
+as JSON. Prism answers an unknown path or method in its own
 error format, so for scenarios marked `prism_format` only the status is checked
 when the target is the mock. Scenarios marked `unsupported` are not sent to the
 mock at all and are reported as SKIP; against the server they run as usual.
@@ -49,8 +52,13 @@ def build_url(base_url: str, path: str) -> str:
     return base_url.rstrip("/") + urllib.parse.quote(path, safe="/?=&")
 
 
+def success_type(scenario: dict) -> str:
+    """Content type of a 2xx body: `expect.content_type` or JSON."""
+    return scenario["expect"].get("content_type", "application/json")
+
+
 def send(base_url: str, scenario: dict, sessions: dict) -> tuple[int, dict, bytes]:
-    headers = {"Accept": "application/json, application/problem+json"}
+    headers = {"Accept": f"{success_type(scenario)}, application/problem+json"}
     data = None
     if "body" in scenario:
         data = json.dumps(scenario["body"], ensure_ascii=False).encode("utf-8")
@@ -115,9 +123,13 @@ def check(
         return failures
 
     content_type = (header(headers, "Content-Type") or "").split(";")[0].strip()
-    expected_type = "application/problem+json" if status >= 400 else "application/json"
+    expected_type = (
+        "application/problem+json" if status >= 400 else success_type(scenario)
+    )
     if content_type != expected_type:
         failures.append(f"Content-Type {content_type!r}, expected {expected_type}")
+    if expected_type != "application/json" and status < 400:
+        return failures  # a file such as text/csv: no JSON fields to check
 
     try:
         body = json.loads(raw)
