@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Історія матеріалу{% endblock %}
+{% block content %}
+<h1>Історія матеріалу{% if history %} «{{ history.material.name }}»{% endif %}</h1>
+<form method="get" action="/price-history">
+  <label>Матеріал
+    <select name="material_id">
+      <option value="">— оберіть матеріал —</option>
+      {% for m in materials %}
+      <option value="{{ m.id }}"{% if history and m.id == history.material.id %} selected{% endif %}>{{ m.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Період
+    <select name="period">
+      {% for value, text in periods %}
+      <option value="{{ value }}"{% if value == period %} selected{% endif %}>{{ text }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label><input type="checkbox" name="show_inactive" value="1"{% if show_inactive %} checked{% endif %}> показати неактивні</label>
+  <button type="submit">Показати</button>
+</form>
+{% if history %}
+{% if not history.material.active %}<p>Матеріал деактивовано.</p>{% endif %}
+<table>
+  <thead>
+    <tr><th>Дата</th><th>Постачальник</th><th>Ціна</th><th>Позначки</th></tr>
+  </thead>
+  <tbody>
+  {% for r in history.items %}
+    <tr>
+      <td>{{ r.date.isoformat() }}</td>
+      <td>{{ r.supplier.name }}</td>
+      <td>{{ r.price | money }}</td>
+      <td>{{ marks(r) | join(", ") }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>Оберіть матеріал.</p>
+{% endif %}
+{% endblock %}

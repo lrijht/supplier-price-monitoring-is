@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "macros.html" import pager %}
+{% block title %}Позиції, що потребують уваги{% endblock %}
+{% block content %}
+<h1>Позиції, що потребують уваги</h1>
+<table>
+  <thead>
+    <tr><th>Постачальник</th><th>Артикул</th><th>Найменування</th><th>Одиниця на сторінці</th><th>Одиниця матеріалу</th><th>Дата останньої ціни «одиниця не збігається»</th></tr>
+  </thead>
+  <tbody>
+  {% for i in page.items %}
+    <tr>
+      <td>{{ i.supplier.name }}{% if not i.supplier_active %} (постачальник неактивний){% endif %}</td>
+      <td>{{ i.sku }}</td>
+      <td>{{ i.name }}</td>
+      <td>{{ i.unit }}</td>
+      <td>{{ i.material_unit }}</td>
+      <td>{{ i.last_unit_mismatch_date.isoformat() }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{{ pager(page, "/attention-items") }}
+{% endblock %}

@@ -17,14 +17,18 @@ form.inline { display: inline; }
 {% if account %}
 <header>
   <nav>
+    <a href="/material-comparisons">Порівняння цін</a>
+    <a href="/price-history">Історія матеріалу</a>
+    <a href="/events">Стрічка змін</a>
+    <a href="/supplier-update-statuses">Стан оновлення постачальників</a>
     {% if account.is_admin %}
     <a href="/suppliers">Постачальники</a>
     <a href="/materials">Матеріали</a>
     <a href="/unlinked-items">Непов'язані позиції</a>
-    <a href="/settings">Налаштування</a>
+    <a href="/attention-items">Позиції, що потребують уваги</a>
     <a href="/run-log-entries">Журнал оновлень</a>
+    <a href="/settings">Налаштування</a>
     {% endif %}
-    <a href="/supplier-update-statuses">Стан оновлення постачальників</a>
   </nav>
   <form method="post" action="/logout"><button type="submit">Вийти</button></form>
 </header>

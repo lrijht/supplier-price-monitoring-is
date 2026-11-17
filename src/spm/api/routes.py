@@ -1,4 +1,4 @@
-"""Operations 1–14, 16, 17, 22–28 of ``spec/openapi.yaml``.
+"""Operations 1–28 of ``spec/openapi.yaml``.
 
 Thin: each operation checks the request in the contract's order and calls the
 same functions of ``auth`` and ``services`` as the web interface (REQ-NF-031).
@@ -16,7 +16,9 @@ from spm.api.errors import API_PREFIX, ProblemError
 from spm.api.requests import (
     BOOL,
     INT,
+    KIND_INVALID,
     NUMBER,
+    PERIOD_INVALID,
     STR,
     auth_service,
     authenticate,
@@ -24,6 +26,7 @@ from spm.api.requests import (
     json_object,
     list_query,
     path_id,
+    query_errors,
     require_admin,
     require_json,
 )
@@ -31,10 +34,17 @@ from spm.auth import SESSION_COOKIE, Account
 from spm.auth.service import SESSION_LIFETIME
 from spm.clock import to_kyiv
 from spm.services import (
+    EVENT_KINDS,
+    PERIODS,
     Actor,
+    AttentionItem,
+    ComparisonListRow,
+    ComparisonRow,
     Directories,
+    Event,
     Material,
     Page,
+    PriceHistory,
     Run,
     RunLogEntry,
     Runs,
@@ -43,9 +53,10 @@ from spm.services import (
     Supplier,
     SupplierItem,
     SupplierUpdateStatus,
+    Views,
     VolumeAcceptance,
 )
-from spm.services.errors import ServiceError
+from spm.services.errors import REQUIRED, FieldError, ServiceError
 
 router = APIRouter(prefix=API_PREFIX)
 
@@ -66,6 +77,10 @@ def settings_service(request: Request) -> SettingsService:
 
 def runs_service(request: Request) -> Runs:
     return request.app.state.runs
+
+
+def views_service(request: Request) -> Views:
+    return request.app.state.views
 
 
 def actor(account: Account) -> Actor:
@@ -221,6 +236,109 @@ def update_status_json(row: SupplierUpdateStatus) -> dict:
         "last_update_date": (
             row.last_update_date.isoformat() if row.last_update_date else None
         ),
+    }
+
+
+def money_json(value) -> str | None:
+    """A sum with two decimals, as the contract's Price and Amount."""
+    return f"{value:.2f}" if value is not None else None
+
+
+def percent_json(value) -> float | None:
+    return float(value) if value is not None else None
+
+
+def attention_json(item: AttentionItem) -> dict:
+    return {
+        "supplier_item": {
+            "id": item.item_id,
+            "supplier": {
+                "id": item.supplier.id,
+                "name": item.supplier.name,
+                "active": item.supplier_active,
+            },
+            "sku": item.sku,
+            "name": item.name,
+            "unit": item.unit,
+        },
+        "material": {
+            "id": item.material.id,
+            "name": item.material.name,
+            "unit": item.material_unit,
+        },
+        "last_unit_mismatch_date": item.last_unit_mismatch_date.isoformat(),
+    }
+
+
+def comparison_list_json(row: ComparisonListRow) -> dict:
+    return {
+        "material": ref_json(row.material),
+        "cheapest_supplier": (
+            ref_json(row.cheapest_supplier) if row.cheapest_supplier else None
+        ),
+        "price": money_json(row.price),
+    }
+
+
+def material_active_json(material) -> dict:
+    return {"id": material.id, "name": material.name, "active": material.active}
+
+
+def comparison_row_json(row: ComparisonRow) -> dict:
+    price = row.daily_price
+    return {
+        "supplier": ref_json(row.supplier),
+        "daily_price": (
+            {
+                "price": money_json(price.price),
+                "date": price.date.isoformat(),
+                "unit_mismatch": price.unit_mismatch,
+            }
+            if price is not None
+            else None
+        ),
+        "stale": row.stale,
+        "cheapest": row.cheapest,
+        "difference_from_cheapest": (
+            {
+                "percent": percent_json(row.difference.percent),
+                "amount": money_json(row.difference.amount),
+            }
+            if row.difference is not None
+            else None
+        ),
+    }
+
+
+def history_json(history: PriceHistory) -> dict:
+    return {
+        "material": material_active_json(history.material),
+        "period": history.period,
+        "items": [
+            {
+                "date": r.date.isoformat(),
+                "supplier": ref_json(r.supplier),
+                "price": money_json(r.price),
+                "unit_mismatch": r.unit_mismatch,
+                "effective_at_period_start": r.effective_at_period_start,
+            }
+            for r in history.items
+        ],
+    }
+
+
+def event_json(event: Event) -> dict:
+    return {
+        "id": event.id,
+        "kind": event.kind,
+        "date": event.date.isoformat(),
+        "created_at": moment_json(event.created_at),
+        "material": ref_json(event.material),
+        "supplier": ref_json(event.supplier),
+        "old_price": money_json(event.old_price),
+        "new_price": money_json(event.new_price),
+        "change_percent": percent_json(event.change_percent),
+        "price": money_json(event.price),
     }
 
 
@@ -473,6 +591,17 @@ async def list_unlinked_items(request: Request) -> Response:
     return json(page_json(result, [unlinked_json(i) for i in result.items]))
 
 
+@router.get("/attention-items")
+async def list_attention_items(request: Request) -> Response:
+    account = authenticate(request)
+    require_admin(
+        request, account, action="attention_items_read", object_type="supplier_item"
+    )
+    page, _ = list_query(request)
+    result = views_service(request).attention_items(page)
+    return json(page_json(result, [attention_json(i) for i in result.items]))
+
+
 @router.put("/supplier-items/{supplier_item_id}/link")
 async def put_supplier_item_link(request: Request, supplier_item_id: str) -> Response:
     account = authenticate(request)
@@ -517,6 +646,76 @@ async def delete_supplier_item_link(
     item_id = path_id(supplier_item_id, "supplier_item_id")
     service_call(directories(request).unlink_item, actor(account), item_id)
     return Response(status_code=204)
+
+
+# --- 18–21 comparison, history, the feed ---------------------------------------------------------
+
+
+@router.get("/material-comparisons")
+async def list_material_comparisons(request: Request) -> Response:
+    authenticate(request)
+    page, _ = list_query(request)
+    q = request.query_params.get("q")
+    result = views_service(request).comparison_list(page, q)
+    return json(page_json(result, [comparison_list_json(r) for r in result.items]))
+
+
+@router.get("/material-comparisons/{material_id}")
+async def get_material_comparison(request: Request, material_id: str) -> Response:
+    authenticate(request)
+    mid = path_id(material_id, "material_id")
+    found = service_call(views_service(request).material_comparison, mid)
+    return json(
+        {
+            "material": material_active_json(found.material),
+            "items": [comparison_row_json(r) for r in found.items],
+        }
+    )
+
+
+@router.get("/materials/{material_id}/price-history")
+async def get_material_price_history(request: Request, material_id: str) -> Response:
+    authenticate(request)
+    errors: list[FieldError] = []
+    try:
+        mid = path_id(material_id, "material_id")
+    except ProblemError as exc:
+        errors += exc.errors
+    period = request.query_params.get("period")
+    if period is None:
+        errors.append(FieldError("period", "required", REQUIRED))
+    elif period not in PERIODS:
+        errors.append(FieldError("period", "period_invalid", PERIOD_INVALID))
+    if errors:
+        raise ProblemError.validation(errors)
+    history = service_call(views_service(request).price_history, mid, period)
+    return json(history_json(history))
+
+
+@router.get("/events")
+async def list_events(request: Request) -> Response:
+    authenticate(request)
+    query = request.query_params
+    page, _, errors = query_errors(query)
+    filters: dict[str, Any] = {}
+    for name in ("material_id", "supplier_id"):
+        value = query.get(name)
+        if value is None:
+            continue
+        try:
+            filters[name] = path_id(value, name)
+        except ProblemError as exc:
+            errors += exc.errors
+    kind = query.get("kind")
+    if kind is not None:
+        if kind in EVENT_KINDS:
+            filters["kind"] = kind
+        else:
+            errors.append(FieldError("kind", "kind_invalid", KIND_INVALID))
+    if errors:
+        raise ProblemError.validation(errors)
+    result = views_service(request).events(page, **filters)
+    return json(page_json(result, [event_json(e) for e in result.items]))
 
 
 # --- 23, 24 settings ----------------------------------------------------------------------------

@@ -32,6 +32,8 @@ from spm.services.errors import (
 )
 
 PAGE_INVALID = "Номер сторінки має бути цілим числом від 1."
+PERIOD_INVALID = "Період має бути одним із: last_7_days, last_30_days, all."
+KIND_INVALID = "Вид події має бути одним із: price_change, appeared, disappeared."
 _INTEGER = re.compile(r"[+-]?\d+")
 _MAX_ID = 2**63 - 1
 

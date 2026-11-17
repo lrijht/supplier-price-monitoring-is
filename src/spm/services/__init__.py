@@ -1,7 +1,8 @@
 """Business logic shared by the web interface and the API (REQ-NF-031).
 
-Directories, links, settings and runs as users see them; comparison, history
-and the feed screen come in block B3. Nothing here depends on HTTP or FastAPI.
+Directories, links, settings and runs as users see them; comparison, history,
+the feed and the items that need attention (``views``). Nothing here depends on
+HTTP or FastAPI.
 """
 
 from spm.services.actions import ActionRecorder, Actor
@@ -24,19 +25,38 @@ from spm.services.runs import (
     VolumeAcceptance,
 )
 from spm.services.settings import Settings, SettingsService
+from spm.services.views import (
+    EVENT_KINDS,
+    PERIODS,
+    AttentionItem,
+    ComparisonListRow,
+    ComparisonRow,
+    Event,
+    MaterialComparison,
+    PriceHistory,
+    Views,
+)
 
 __all__ = [
+    "EVENT_KINDS",
     "PAGE_SIZE",
+    "PERIODS",
     "ActionRecorder",
     "Actor",
+    "AttentionItem",
+    "ComparisonListRow",
+    "ComparisonRow",
     "Conflict",
     "Directories",
+    "Event",
     "FieldError",
     "LaunchResult",
     "LinkResult",
     "Material",
+    "MaterialComparison",
     "NotFound",
     "Page",
+    "PriceHistory",
     "Run",
     "RunLauncher",
     "RunLogEntry",
@@ -47,5 +67,6 @@ __all__ = [
     "SupplierItem",
     "SupplierUpdateStatus",
     "ValidationFailed",
+    "Views",
     "VolumeAcceptance",
 ]
