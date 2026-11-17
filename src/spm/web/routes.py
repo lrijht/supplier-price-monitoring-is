@@ -702,6 +702,35 @@ def time_text(moment, started) -> str:
     return local.strftime("%H:%M:%S")
 
 
+def run_rows(run, common: dict) -> list[dict]:
+    """The rows of a run: one per supplier, with its status and messages."""
+    rows = []
+    for s in run.supplier_run_statuses:
+        count = s.parsed_items_count
+        texts = [s.error_reason] if s.error_reason else []
+        texts += [warning_text(w) for w in s.warnings]
+        accept = (
+            {"run_id": run.id, "supplier_id": s.supplier.id}
+            if s.volume_acceptance_available
+            else None
+        )
+        rows.append(
+            common
+            | {
+                "finish": time_text(run.finished_at, run.started_at),
+                "trigger": TRIGGER_TEXT[run.trigger],
+                "by": run.started_by or DASH,
+                "status": RUN_STATUS_TEXT[run.status],
+                "supplier": s.supplier.name,
+                "supplier_status": SUPPLIER_STATUS_TEXT.get(s.status, DASH),
+                "count": str(count) if count is not None else DASH,
+                "message": "; ".join(texts),
+                "accept": accept,
+            }
+        )
+    return rows
+
+
 def log_rows(entries: list[RunLogEntry]) -> list[dict]:
     """One table row per supplier of a run, one row for any other entry."""
     rows = []
@@ -720,31 +749,8 @@ def log_rows(entries: list[RunLogEntry]) -> list[dict]:
             "message": "",
             "accept": None,
         }
-        run = entry.run
-        if run is not None:
-            for s in run.supplier_run_statuses:
-                count = s.parsed_items_count
-                texts = [s.error_reason] if s.error_reason else []
-                texts += [warning_text(w) for w in s.warnings]
-                accept = (
-                    {"run_id": run.id, "supplier_id": s.supplier.id}
-                    if s.volume_acceptance_available
-                    else None
-                )
-                rows.append(
-                    common
-                    | {
-                        "finish": time_text(run.finished_at, run.started_at),
-                        "trigger": TRIGGER_TEXT[run.trigger],
-                        "by": run.started_by or DASH,
-                        "status": RUN_STATUS_TEXT[run.status],
-                        "supplier": s.supplier.name,
-                        "supplier_status": SUPPLIER_STATUS_TEXT.get(s.status, DASH),
-                        "count": str(count) if count is not None else DASH,
-                        "message": "; ".join(texts),
-                        "accept": accept,
-                    }
-                )
+        if entry.run is not None:
+            rows += run_rows(entry.run, common)
         elif entry.volume_acceptance is not None:
             accepted = entry.volume_acceptance
             rows.append(
