@@ -113,6 +113,12 @@ def int_or_none(value: str) -> int | None:
     return int(value) if value.isascii() and value.isdigit() else None
 
 
+def known_id(value: int | None) -> int:
+    """An id for a service lookup: an address part that is not a number becomes
+    0, which no record has, so the screen answers «not found»."""
+    return value if value is not None else 0
+
+
 def page_number(request: Request) -> int:
     """The page of a list; anything but an integer from 1 is the first page."""
     number = int_or_none(request.query_params.get("page", ""))
@@ -153,6 +159,14 @@ def not_found_page(account: Account | None) -> HTMLResponse:
     return render("not_found.html", 404, account=account)
 
 
+def user_screen(request: Request) -> Account | Response:
+    """The account of the session, or the login form without a session."""
+    account = session_account(request)
+    if account is None:
+        return redirect("/login")
+    return account
+
+
 def admin_screen(
     request: Request,
     *,
@@ -162,9 +176,9 @@ def admin_screen(
 ) -> Account | Response:
     """The administrator's account, or the answer: the login form without a
     session, «немає доступу» for the manager (REQ-F-001, REQ-F-005)."""
-    account = session_account(request)
-    if account is None:
-        return redirect("/login")
+    account = user_screen(request)
+    if not isinstance(account, Account):
+        return account
     if not account.is_admin:
         auth(request).deny(
             account, action=action, object_type=object_type, object_id=object_id
@@ -183,9 +197,9 @@ async def form_data(request: Request) -> dict[str, str]:
 
 async def not_found(request: Request) -> Response:
     """Without a session every screen address leads to the login form."""
-    account = session_account(request)
-    if account is None:
-        return redirect("/login")
+    account = user_screen(request)
+    if not isinstance(account, Account):
+        return account
     return not_found_page(account)
 
 
@@ -228,9 +242,9 @@ async def logout(request: Request) -> Response:
 
 @router.get("/")
 async def home(request: Request) -> Response:
-    account = session_account(request)
-    if account is None:
-        return redirect("/login")
+    account = user_screen(request)
+    if not isinstance(account, Account):
+        return account
     return render("home.html", account=account)
 
 
@@ -314,7 +328,7 @@ async def supplier_screen(request: Request, supplier_id: str) -> Response:
     if not isinstance(account, Account):
         return account
     try:
-        supplier = directories(request).get_supplier(sid if sid is not None else 0)
+        supplier = directories(request).get_supplier(known_id(sid))
     except NotFound:
         return not_found_page(account)
     values = {
@@ -344,7 +358,7 @@ async def update_supplier(request: Request, supplier_id: str) -> Response:
     values = supplier_values(await form_data(request))
     service = directories(request)
     try:
-        current = service.get_supplier(sid if sid is not None else 0)
+        current = service.get_supplier(known_id(sid))
         service.update_supplier(actor(account), current.id, values)
     except NotFound:
         return not_found_page(account)
@@ -372,6 +386,18 @@ def material_values(form: dict[str, str]) -> dict:
     }
 
 
+def material_form(account, *, heading, action, values, errors, status=200):
+    return render(
+        "material_form.html",
+        status,
+        account=account,
+        heading=heading,
+        action=action,
+        values=values,
+        errors=errors,
+    )
+
+
 @router.get("/materials")
 async def materials_screen(request: Request) -> Response:
     account = admin_screen(request, action="material_list", object_type=MATERIAL)
@@ -386,9 +412,8 @@ async def new_material_screen(request: Request) -> Response:
     account = admin_screen(request, action="material_create", object_type=MATERIAL)
     if not isinstance(account, Account):
         return account
-    return render(
-        "material_form.html",
-        account=account,
+    return material_form(
+        account,
         heading="Новий матеріал",
         action="/materials",
         values={"name": "", "unit": "", "active": True},
@@ -405,14 +430,13 @@ async def create_material(request: Request) -> Response:
     try:
         directories(request).create_material(actor(account), **values)
     except ServiceError as exc:
-        return render(
-            "material_form.html",
-            refused_status(exc),
-            account=account,
+        return material_form(
+            account,
             heading="Новий матеріал",
             action="/materials",
             values=values,
             errors=messages(exc),
+            status=refused_status(exc),
         )
     return redirect("/materials")
 
@@ -426,12 +450,11 @@ async def material_screen(request: Request, material_id: str) -> Response:
     if not isinstance(account, Account):
         return account
     try:
-        material = directories(request).get_material(mid if mid is not None else 0)
+        material = directories(request).get_material(known_id(mid))
     except NotFound:
         return not_found_page(account)
-    return render(
-        "material_form.html",
-        account=account,
+    return material_form(
+        account,
         heading=f"Матеріал «{material.name}»",
         action=f"/materials/{material.id}",
         values={
@@ -454,19 +477,18 @@ async def update_material(request: Request, material_id: str) -> Response:
     values = material_values(await form_data(request))
     service = directories(request)
     try:
-        current = service.get_material(mid if mid is not None else 0)
+        current = service.get_material(known_id(mid))
         service.update_material(actor(account), current.id, values)
     except NotFound:
         return not_found_page(account)
     except ServiceError as exc:
-        return render(
-            "material_form.html",
-            refused_status(exc),
-            account=account,
+        return material_form(
+            account,
             heading=f"Матеріал «{current.name}»",
             action=f"/materials/{current.id}",
             values=values,
             errors=messages(exc),
+            status=refused_status(exc),
         )
     return redirect("/materials")
 
@@ -481,7 +503,7 @@ async def material_links_screen(request: Request, material_id: str) -> Response:
         return account
     try:
         material, page = directories(request).list_material_links(
-            mid if mid is not None else 0, page_number(request)
+            known_id(mid), page_number(request)
         )
     except NotFound:
         return not_found_page(account)
@@ -530,9 +552,7 @@ async def link_choice_screen(request: Request, supplier_item_id: str) -> Respons
     if not isinstance(account, Account):
         return account
     try:
-        item = directories(request).get_supplier_item(
-            item_id if item_id is not None else 0
-        )
+        item = directories(request).get_supplier_item(known_id(item_id))
     except NotFound:
         return not_found_page(account)
     return link_choice(request, account, item, request.query_params.get("q", ""), [])
@@ -548,7 +568,7 @@ async def link_item(request: Request, supplier_item_id: str) -> Response:
         return account
     service = directories(request)
     try:
-        item = service.get_supplier_item(item_id if item_id is not None else 0)
+        item = service.get_supplier_item(known_id(item_id))
     except NotFound:
         return not_found_page(account)
     material_id = int_or_none((await form_data(request)).get("material_id", ""))
@@ -575,7 +595,7 @@ async def unlink_item(request: Request, supplier_item_id: str) -> Response:
         return account
     try:
         material_id = directories(request).unlink_item(
-            actor(account), item_id if item_id is not None else 0
+            actor(account), known_id(item_id)
         )
     except NotFound:
         return not_found_page(account)
@@ -797,9 +817,9 @@ async def accept_volume(request: Request) -> Response:
 
 @router.get("/supplier-update-statuses")
 async def supplier_update_statuses_screen(request: Request) -> Response:
-    account = session_account(request)
-    if account is None:
-        return redirect("/login")
+    account = user_screen(request)
+    if not isinstance(account, Account):
+        return account
     page = runs_service(request).update_statuses(page_number(request))
     return render("supplier_update_statuses.html", account=account, page=page)
 
@@ -855,9 +875,9 @@ def query_suffix(values: dict) -> str:
 
 @router.get("/material-comparisons")
 async def comparison_list_screen(request: Request) -> Response:
-    account = session_account(request)
-    if account is None:
-        return redirect("/login")
+    account = user_screen(request)
+    if not isinstance(account, Account):
+        return account
     q = request.query_params.get("q", "")
     page = views_service(request).comparison_list(page_number(request), q)
     return render(
@@ -871,14 +891,12 @@ async def comparison_list_screen(request: Request) -> Response:
 
 @router.get("/material-comparisons/{material_id}")
 async def material_comparison_screen(request: Request, material_id: str) -> Response:
-    account = session_account(request)
-    if account is None:
-        return redirect("/login")
+    account = user_screen(request)
+    if not isinstance(account, Account):
+        return account
     mid = int_or_none(material_id)
     try:
-        found = views_service(request).material_comparison(
-            mid if mid is not None else 0
-        )
+        found = views_service(request).material_comparison(known_id(mid))
     except NotFound:
         return not_found_page(account)
     return render(
@@ -893,9 +911,9 @@ async def material_comparison_screen(request: Request, material_id: str) -> Resp
 async def price_history_screen(request: Request) -> Response:
     """Without a material the screen offers the choice; an unknown period is
     the whole period."""
-    account = session_account(request)
-    if account is None:
-        return redirect("/login")
+    account = user_screen(request)
+    if not isinstance(account, Account):
+        return account
     service = views_service(request)
     query = request.query_params
     period = query.get("period", "")
@@ -926,9 +944,9 @@ async def price_history_screen(request: Request) -> Response:
 @router.get("/events")
 async def events_screen(request: Request) -> Response:
     """Filters with a value that is not an id or a kind are not applied."""
-    account = session_account(request)
-    if account is None:
-        return redirect("/login")
+    account = user_screen(request)
+    if not isinstance(account, Account):
+        return account
     service = views_service(request)
     query = request.query_params
     kind = query.get("kind", "")
