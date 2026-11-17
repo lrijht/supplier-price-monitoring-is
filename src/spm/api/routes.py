@@ -106,28 +106,58 @@ def json(content: Any, status: int = 200, location: str | None = None) -> JSONRe
 # --- representations ---------------------------------------------------------------------
 
 
+def date_json(value) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
+def moment_json(value) -> str | None:
+    """ISO 8601 with the Kyiv offset, to the second (REQ-NF-031)."""
+    return to_kyiv(value).isoformat(timespec="seconds") if value is not None else None
+
+
+def money_json(value) -> str | None:
+    """A sum with two decimals, as the contract's Price and Amount."""
+    return f"{value:.2f}" if value is not None else None
+
+
+def percent_json(value) -> float | None:
+    return float(value) if value is not None else None
+
+
+def ref_json(ref) -> dict:
+    return {"id": ref.id, "name": ref.name}
+
+
+def active_ref_json(ref) -> dict:
+    """A reference with its activity; for the manager it is the whole supplier
+    or material (SupplierForManager, MaterialForManager, REQ-F-070)."""
+    return {"id": ref.id, "name": ref.name, "active": ref.active}
+
+
+def supplier_item_json(item_id: int, supplier: dict, sku, name, unit) -> dict:
+    return {"id": item_id, "supplier": supplier, "sku": sku, "name": name, "unit": unit}
+
+
 def account_json(account: Account) -> dict:
     return {"account": {"login": account.login, "role": account.role}}
 
 
 def supplier_json(supplier: Supplier, *, full: bool = True) -> dict:
-    if not full:  # SupplierForManager (REQ-F-070)
-        return {"id": supplier.id, "name": supplier.name, "active": supplier.active}
+    if not full:
+        return active_ref_json(supplier)
     return {
         "id": supplier.id,
         "name": supplier.name,
         "catalog_url": supplier.catalog_url,
         "parser": supplier.parser,
         "active": supplier.active,
-        "last_update_date": (
-            supplier.last_update_date.isoformat() if supplier.last_update_date else None
-        ),
+        "last_update_date": date_json(supplier.last_update_date),
     }
 
 
 def material_json(material: Material, *, full: bool = True) -> dict:
-    if not full:  # MaterialForManager (REQ-F-070)
-        return {"id": material.id, "name": material.name, "active": material.active}
+    if not full:
+        return active_ref_json(material)
     return {
         "id": material.id,
         "name": material.name,
@@ -139,31 +169,19 @@ def material_json(material: Material, *, full: bool = True) -> dict:
 
 def link_json(item: SupplierItem, material: Material) -> dict:
     return {
-        "supplier_item": {
-            "id": item.id,
-            "supplier": {"id": item.supplier.id, "name": item.supplier.name},
-            "sku": item.sku,
-            "name": item.name,
-            "unit": item.unit,
-        },
-        "material": {"id": material.id, "name": material.name},
+        "supplier_item": supplier_item_json(
+            item.id, ref_json(item.supplier), item.sku, item.name, item.unit
+        ),
+        "material": ref_json(material),
     }
 
 
 def unlinked_json(item: SupplierItem) -> dict:
     return {
-        "supplier_item": {
-            "id": item.id,
-            "supplier": {
-                "id": item.supplier.id,
-                "name": item.supplier.name,
-                "active": item.supplier.active,
-            },
-            "sku": item.sku,
-            "name": item.name,
-            "unit": item.unit,
-            "last_seen_date": item.last_seen_date.isoformat(),
-        }
+        "supplier_item": supplier_item_json(
+            item.id, active_ref_json(item.supplier), item.sku, item.name, item.unit
+        )
+        | {"last_seen_date": date_json(item.last_seen_date)}
     }
 
 
@@ -182,15 +200,6 @@ def settings_json(settings: Settings) -> dict:
         "update_time": settings.update_time,
         "notification_threshold": settings.threshold,
     }
-
-
-def moment_json(value) -> str | None:
-    """ISO 8601 with the Kyiv offset, to the second (REQ-NF-031)."""
-    return to_kyiv(value).isoformat(timespec="seconds") if value is not None else None
-
-
-def ref_json(ref) -> dict:
-    return {"id": ref.id, "name": ref.name}
 
 
 def run_json(run: Run) -> dict:
@@ -244,34 +253,19 @@ def log_entry_json(entry: RunLogEntry) -> dict:
 def update_status_json(row: SupplierUpdateStatus) -> dict:
     return {
         "supplier": ref_json(row.supplier),
-        "last_update_date": (
-            row.last_update_date.isoformat() if row.last_update_date else None
-        ),
+        "last_update_date": date_json(row.last_update_date),
     }
-
-
-def money_json(value) -> str | None:
-    """A sum with two decimals, as the contract's Price and Amount."""
-    return f"{value:.2f}" if value is not None else None
-
-
-def percent_json(value) -> float | None:
-    return float(value) if value is not None else None
 
 
 def attention_json(item: AttentionItem) -> dict:
     return {
-        "supplier_item": {
-            "id": item.item_id,
-            "supplier": {
-                "id": item.supplier.id,
-                "name": item.supplier.name,
-                "active": item.supplier_active,
-            },
-            "sku": item.sku,
-            "name": item.name,
-            "unit": item.unit,
-        },
+        "supplier_item": supplier_item_json(
+            item.item_id,
+            ref_json(item.supplier) | {"active": item.supplier_active},
+            item.sku,
+            item.name,
+            item.unit,
+        ),
         "material": {
             "id": item.material.id,
             "name": item.material.name,
@@ -289,10 +283,6 @@ def comparison_list_json(row: ComparisonListRow) -> dict:
         ),
         "price": money_json(row.price),
     }
-
-
-def material_active_json(material) -> dict:
-    return {"id": material.id, "name": material.name, "active": material.active}
 
 
 def comparison_row_json(row: ComparisonRow) -> dict:
@@ -323,7 +313,7 @@ def comparison_row_json(row: ComparisonRow) -> dict:
 
 def history_json(history: PriceHistory) -> dict:
     return {
-        "material": material_active_json(history.material),
+        "material": active_ref_json(history.material),
         "period": history.period,
         "items": [
             {
@@ -672,7 +662,7 @@ async def get_material_comparison(request: Request, material_id: str) -> Respons
     found = service_call(views_service(request).material_comparison, mid)
     return json(
         {
-            "material": material_active_json(found.material),
+            "material": active_ref_json(found.material),
             "items": [comparison_row_json(r) for r in found.items],
         }
     )
