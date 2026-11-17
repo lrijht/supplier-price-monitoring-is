@@ -1,4 +1,4 @@
-"""Operations 1–14, 16, 17, 23, 24 of ``spec/openapi.yaml``.
+"""Operations 1–14, 16, 17, 22–28 of ``spec/openapi.yaml``.
 
 Thin: each operation checks the request in the contract's order and calls the
 same functions of ``auth`` and ``services`` as the web interface (REQ-NF-031).
@@ -29,15 +29,21 @@ from spm.api.requests import (
 )
 from spm.auth import SESSION_COOKIE, Account
 from spm.auth.service import SESSION_LIFETIME
+from spm.clock import to_kyiv
 from spm.services import (
     Actor,
     Directories,
     Material,
     Page,
+    Run,
+    RunLogEntry,
+    Runs,
     Settings,
     SettingsService,
     Supplier,
     SupplierItem,
+    SupplierUpdateStatus,
+    VolumeAcceptance,
 )
 from spm.services.errors import ServiceError
 
@@ -56,6 +62,10 @@ def directories(request: Request) -> Directories:
 
 def settings_service(request: Request) -> SettingsService:
     return request.app.state.settings
+
+
+def runs_service(request: Request) -> Runs:
+    return request.app.state.runs
 
 
 def actor(account: Account) -> Actor:
@@ -145,6 +155,72 @@ def settings_json(settings: Settings) -> dict:
     return {
         "update_time": settings.update_time,
         "notification_threshold": settings.threshold,
+    }
+
+
+def moment_json(value) -> str | None:
+    """ISO 8601 with the Kyiv offset, to the second (REQ-NF-031)."""
+    return to_kyiv(value).isoformat(timespec="seconds") if value is not None else None
+
+
+def ref_json(ref) -> dict:
+    return {"id": ref.id, "name": ref.name}
+
+
+def run_json(run: Run) -> dict:
+    return {
+        "id": run.id,
+        "trigger": run.trigger,
+        "started_at": moment_json(run.started_at),
+        "finished_at": moment_json(run.finished_at),
+        "started_by": run.started_by,
+        "status": run.status,
+        "supplier_run_statuses": [
+            {
+                "supplier": ref_json(s.supplier),
+                "status": s.status,
+                "parsed_items_count": s.parsed_items_count,
+                "reason_code": s.reason_code,
+                "error_reason": s.error_reason,
+                "warnings": [{"kind": w["kind"], "sku": w["sku"]} for w in s.warnings],
+                "volume_acceptance_available": s.volume_acceptance_available,
+            }
+            for s in run.supplier_run_statuses
+        ],
+    }
+
+
+def acceptance_json(acceptance: VolumeAcceptance) -> dict:
+    return {
+        "id": acceptance.id,
+        "run_id": acceptance.run_id,
+        "supplier": ref_json(acceptance.supplier),
+        "accepted_by": acceptance.accepted_by,
+        "accepted_at": moment_json(acceptance.accepted_at),
+        "volume_baseline": acceptance.volume_baseline,
+    }
+
+
+def log_entry_json(entry: RunLogEntry) -> dict:
+    return {
+        "kind": entry.kind,
+        "occurred_at": moment_json(entry.occurred_at),
+        "trigger": entry.trigger,
+        "run": run_json(entry.run) if entry.run is not None else None,
+        "volume_acceptance": (
+            acceptance_json(entry.volume_acceptance)
+            if entry.volume_acceptance is not None
+            else None
+        ),
+    }
+
+
+def update_status_json(row: SupplierUpdateStatus) -> dict:
+    return {
+        "supplier": ref_json(row.supplier),
+        "last_update_date": (
+            row.last_update_date.isoformat() if row.last_update_date else None
+        ),
     }
 
 
@@ -471,6 +547,69 @@ async def update_settings(request: Request) -> Response:
         threshold=Decimal(str(threshold)) if threshold is not None else None,
     )
     return json(settings_json(settings))
+
+
+# --- 22, 25–28 updates ------------------------------------------------------------------------------
+
+
+@router.get("/supplier-update-statuses")
+async def list_supplier_update_statuses(request: Request) -> Response:
+    authenticate(request)
+    page, _ = list_query(request)
+    result = runs_service(request).update_statuses(page)
+    return json(page_json(result, [update_status_json(r) for r in result.items]))
+
+
+@router.post("/runs")
+async def create_run(request: Request) -> Response:
+    """No body and no Content-Type (contract, operation 25)."""
+    account = authenticate(request)
+    require_admin(request, account, action="manual_run", object_type="run")
+    result = service_call(runs_service(request).start_manual, actor(account))
+    if isinstance(result, Run):
+        return json(run_json(result), 202, f"{API_PREFIX}/runs/{result.id}")
+    return json(log_entry_json(result))
+
+
+@router.get("/runs/{run_id}")
+async def get_run(request: Request, run_id: str) -> Response:
+    account = authenticate(request)
+    require_admin(
+        request, account, action="run_read", object_type="run", object_id=run_id
+    )
+    rid = path_id(run_id, "run_id")
+    return json(run_json(service_call(runs_service(request).get_run, rid)))
+
+
+@router.get("/run-log-entries")
+async def list_run_log_entries(request: Request) -> Response:
+    account = authenticate(request)
+    require_admin(request, account, action="run_log_read", object_type="run")
+    page, _ = list_query(request)
+    result = runs_service(request).list_log(page)
+    return json(page_json(result, [log_entry_json(e) for e in result.items]))
+
+
+@router.post("/volume-acceptances")
+async def create_volume_acceptance(request: Request) -> Response:
+    """201 without Location: an acceptance has no address of its own."""
+    account = authenticate(request)
+    require_admin(
+        request, account, action="volume_accept", object_type="volume_acceptance"
+    )
+    service = runs_service(request)
+    who = actor(account)
+    fields = await _body(
+        request,
+        {"run_id": INT, "supplier_id": INT},
+        (),
+        required=("run_id", "supplier_id"),
+        on_reject=lambda code: service.reject_acceptance(who, code),
+    )
+    acceptance = service_call(
+        service.accept_volume, who, fields["run_id"], fields["supplier_id"]
+    )
+    return json(acceptance_json(acceptance), 201)
 
 
 # --- body of state-changing operations -------------------------------------------------------------

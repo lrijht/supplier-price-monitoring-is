@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% from "macros.html" import errors_block, pager %}
+{% block title %}Журнал оновлень{% endblock %}
+{% block content %}
+<h1>Журнал оновлень</h1>
+{{ errors_block(errors) }}
+<form method="post" action="/runs"><button type="submit">Запустити оновлення</button></form>
+<table>
+  <thead>
+    <tr>
+      <th>Дата</th><th>Початок</th><th>Завершення</th><th>Спосіб</th><th>Запустив</th>
+      <th>Статус запуску</th><th>Постачальник</th><th>Статус постачальника</th>
+      <th>Розібрано позицій</th><th>Помилка або попередження</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td>{{ r.date }}</td>
+      <td>{{ r.start }}</td>
+      <td>{{ r.finish }}</td>
+      <td>{{ r.trigger }}</td>
+      <td>{{ r.by }}</td>
+      <td>{{ r.status }}</td>
+      <td>{{ r.supplier }}</td>
+      <td>{{ r.supplier_status }}</td>
+      <td>{{ r.count }}</td>
+      <td>{{ r.message }}</td>
+      <td>
+        {% if r.accept %}
+        <form method="post" action="/volume-acceptances" class="inline">
+          <input type="hidden" name="run_id" value="{{ r.accept.run_id }}">
+          <input type="hidden" name="supplier_id" value="{{ r.accept.supplier_id }}">
+          <button type="submit">Прийняти новий обсяг</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{{ pager(page, "/run-log-entries") }}
+{% endblock %}

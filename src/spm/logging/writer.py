@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
@@ -35,6 +37,21 @@ def set_request_id(value: str | None):
 
 def reset_request_id(token) -> None:
     _request_id.reset(token)
+
+
+@contextmanager
+def request_id_scope(value: str | None) -> Iterator[None]:
+    """Records written inside get ``value`` as their request identifier.
+
+    Records of an update run carry the identifier of the request that started
+    it, or the run id; "пропущено" and "немає активних постачальників" carry the
+    id of their run log entry (REQ-NF-032).
+    """
+    token = _request_id.set(value)
+    try:
+        yield
+    finally:
+        _request_id.reset(token)
 
 
 def start_request_account():

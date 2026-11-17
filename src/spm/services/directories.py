@@ -28,7 +28,7 @@ from spm.services.errors import (
     ValidationFailed,
 )
 from spm.services.ordering import Page, matches, paginate, sort_by
-from spm.storage import Database, repositories
+from spm.storage import Database, repositories, updates
 from spm.storage.repositories import MaterialRow, SupplierItemRow
 
 # Rows of storage are the services' read models; the web interface and the API
@@ -51,8 +51,7 @@ class Supplier:
     catalog_url: str
     parser: str
     active: bool
-    # The date of the last update (REQ-F-034) comes from update runs, block B2;
-    # before them every supplier is «ще не оновлювався».
+    # The date of the last update (REQ-F-034); None — «ще не оновлювався».
     last_update_date: date | None = None
 
 
@@ -63,8 +62,12 @@ class LinkResult:
     created: bool  # a new link (not a relink or the same link again)
 
 
-def _supplier(row: repositories.SupplierRow) -> Supplier:
-    return Supplier(row.id, row.name, row.catalog_url, row.parser, row.active)
+def _supplier(
+    row: repositories.SupplierRow, last_update_date: date | None = None
+) -> Supplier:
+    return Supplier(
+        row.id, row.name, row.catalog_url, row.parser, row.active, last_update_date
+    )
 
 
 def name_key(name: str) -> str:
@@ -121,17 +124,19 @@ class Directories:
     ) -> Page[Supplier]:
         with self._db.transaction() as conn:
             rows = repositories.all_suppliers(conn)
+            dates = updates.last_update_dates(conn)
         if active is not None:
             rows = [r for r in rows if r.active is active]
         rows = sort_by(rows, lambda r: r.name)
-        return paginate([_supplier(r) for r in rows], page)
+        return paginate([_supplier(r, dates.get(r.id)) for r in rows], page)
 
     def get_supplier(self, supplier_id: int) -> Supplier:
         with self._db.transaction() as conn:
             row = repositories.get_supplier(conn, supplier_id)
+            dates = updates.last_update_dates(conn)
         if row is None:
             raise NotFound()
-        return _supplier(row)
+        return _supplier(row, dates.get(row.id))
 
     def _check_supplier(
         self,
@@ -243,7 +248,7 @@ class Directories:
             self._record.rejected(actor, action, SUPPLIER, supplier_id, exc.code)
             raise
         self._record.success(actor, action, SUPPLIER, supplier_id)
-        return _supplier(updated)
+        return _supplier(updated, self.get_supplier(supplier_id).last_update_date)
 
     # --- materials (REQ-F-008, REQ-F-009, REQ-F-010) ----------------------------------------
 
@@ -448,6 +453,8 @@ class Directories:
                     return LinkResult(item, material, created=False)
                 self._check_link(conn, item, material)
                 repositories.set_item_material(conn, item.id, material.id)
+                # REQ-F-045, REQ-F-046, REQ-F-047: no feed base until "з'явився".
+                updates.reset_item_feed(conn, item.id)
                 linked = repositories.get_supplier_item(conn, item.id)
                 material = repositories.get_material(conn, material.id)
         except NotFound:
@@ -492,5 +499,6 @@ class Directories:
             if item is None or item.material_id is None:
                 raise NotFound()
             repositories.set_item_material(conn, item.id, None)
+            updates.reset_item_feed(conn, item.id)
         self._record.success(actor, "link_remove", SUPPLIER_ITEM, item_id)
         return item.material_id
