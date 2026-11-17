@@ -35,10 +35,11 @@
 
 ## Позитивні сценарії
 
-Кожна з 28 операцій контракту має хоча б один позитивний сценарій; `listSuppliers`,
-`putSupplierItemLink` і `createRun` — по два (дві ролі, два коди успіху), `updateSettings` — п'ять
-(межові й проміжні значення порогу), `listMaterials` — три (дві ролі і відбір `active`).
-Сценарії П-32…П-37 додано після REVISE на API-GATE (РА-15, РА-12, РА-14).
+Кожна з 29 операцій контракту має хоча б один позитивний сценарій; `listSuppliers`,
+`putSupplierItemLink`, `createRun` і `exportMaterialComparisons` — по два (дві ролі, два коди
+успіху, пошук), `updateSettings` — п'ять (межові й проміжні значення порогу), `listMaterials` — три
+(дві ролі і відбір `active`). Сценарії П-32…П-37 додано після REVISE на API-GATE (РА-15, РА-12,
+РА-14), П-38 і П-39 — адендумом A-06 (REQ-F-072).
 
 | ID | Операція | REQ / BDD | Запит | Заголовки | Тіло | Очікується | Як відтворює mock |
 |---|---|---|---|---|---|---|---|
@@ -79,6 +80,8 @@
 | П-35 | `updateSettings` | REQ-F-019 | `PATCH /settings` | `Cookie: spm_session=mock-admin`<br>`Content-Type: application/json` | `{"notification_threshold": 50}` | 200 | приклад за замовчуванням |
 | П-36 | `listMaterials` | REQ-F-070, BDD-070 | `GET /materials` | `Cookie: spm_session=mock-manager`<br>`Prefer: example=manager` | — | 200; є `items.0.id`, `name`, `active`; немає `items.0.unit`, `items.0.linked_items_count` | `Prefer: example=…` |
 | П-37 | `listMaterials` | REQ-F-040, REQ-F-049, REQ-F-070 | `GET /materials?active=true` | `Cookie: spm_session=mock-manager`<br>`Prefer: example=manager` | — | 200 | `Prefer: example=…` |
+| П-38 | `exportMaterialComparisons` | REQ-F-072, REQ-F-035, REQ-NF-031, BDD-072 | `GET /exports/material-comparisons` | `Cookie: spm_session=mock-manager` | — | 200; `Content-Type: text/csv`; заголовок `Content-Disposition` | приклад за замовчуванням |
+| П-39 | `exportMaterialComparisons` | REQ-F-072, REQ-F-059, BDD-072 | `GET /exports/material-comparisons?q=лдсп` | `Cookie: spm_session=mock-admin` | — | 200; `Content-Type: text/csv`; заголовок `Content-Disposition` | приклад за замовчуванням |
 
 Після REVISE П-01, П-06, П-11 і П-18 перевіряють і заголовок `Location` (РА-10), а П-05 — що в
 постачальника для менеджера немає й `last_update_date` (РА-12).
@@ -132,9 +135,25 @@
 | Н-43 | `listRunLogEntries` | REQ-F-003, REQ-F-005 | `GET /run-log-entries` | `Cookie: spm_session=mock-manager`<br>`Prefer: code=403` | — | 403 `forbidden` | `Prefer: code=…` |
 | Н-44 | `createVolumeAcceptance` | REQ-F-003, REQ-F-005 | `POST /volume-acceptances` | `Cookie: spm_session=mock-manager`<br>`Content-Type: application/json`<br>`Prefer: code=403` | `{"run_id": 41, "supplier_id": 3}` | 403 `forbidden` | `Prefer: code=…` |
 | Н-45 | `listMaterialComparisons` | REQ-NF-018, REQ-NF-031 | `GET /material-comparisons` | `Cookie: spm_session=mock-manager`<br>`Prefer: code=500` | — | 500 `internal_error`; без `errors` | `Prefer: code=…` |
+| Н-46 | `exportMaterialComparisons` | REQ-F-072, REQ-NF-031, REQ-NF-021 | `GET /exports/material-comparisons` | — | — | 401 `unauthenticated` | перевірка безпеки Prism (немає cookie) → відповідь 401 з контракту |
+| Н-47 | `exportMaterialComparisons` | REQ-NF-018, REQ-NF-031 | `GET /exports/material-comparisons` | `Cookie: spm_session=mock-manager`<br>`Prefer: code=500` | — | 500 `internal_error`; без `errors` | `Prefer: code=…` |
 
 Н-20…Н-45 додано після REVISE на API-GATE (РА-15). З Н-03, Н-04 і Н-29…Н-44 403 перевірено на
 кожній з 18 операцій «адмін»: на mock — що контракт описує 403 `forbidden` для цієї операції.
+Н-46 і Н-47 додано адендумом A-06. Негативного сценарію 422 для `exportMaterialComparisons` немає:
+параметр `q` — будь-який рядок, а невідомі параметри ігноруються, тож 422 ця операція не має.
+
+## Вивантаження CSV і скрипт прогону
+
+П-38 і П-39 очікують успішну відповідь `text/csv` із заголовком `Content-Disposition` (поле
+`content_type` у `expect` файлу `scenarios.json`). Скрипт `tests/contract/run_mock_scenarios.py`
+поки що для кожного 2xx очікує `application/json`, поле `content_type` не читає і надсилає
+`Accept: application/json, application/problem+json`, тому до доробки скрипта в тікеті T-60
+П-38 і П-39 не проходять ні проти mock, ні проти сервера. Prism 5.16.0 на такий `Accept` відповідає
+406, а з `Accept: text/csv` віддає приклад контракту з BOM і `Content-Disposition`
+(перевірено 2026-11-17). Н-46 і Н-47 від цієї доробки не
+залежать. Прогін проти сервера (`tests/contract/server_run.py`) розподіляє сценарії за етапами з
+переліком ID; етапів для П-38, П-39, Н-46 і Н-47 у ньому ще немає — їх теж додає T-60.
 
 ## Відомі обмеження mock
 
