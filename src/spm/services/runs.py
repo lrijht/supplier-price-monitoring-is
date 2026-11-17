@@ -24,7 +24,7 @@ from spm.services.errors import (
     ServiceError,
     ValidationFailed,
 )
-from spm.services.ordering import PAGE_SIZE, Page, paginate, sort_by
+from spm.services.ordering import PAGE_SIZE, Page, page_count, paginate, sort_by
 from spm.storage import Database, repositories, updates
 
 RUN = "run"
@@ -199,7 +199,7 @@ class Runs:
             items=entries,
             page=page,
             total_items=total,
-            total_pages=-(-total // PAGE_SIZE),
+            total_pages=page_count(total),
         )
 
     @staticmethod

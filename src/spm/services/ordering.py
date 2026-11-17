@@ -54,6 +54,11 @@ class Page[T]:
     page_size: int = PAGE_SIZE
 
 
+def page_count(total_items: int) -> int:
+    """How many pages of 50 the list has; an empty list has none."""
+    return ceil(total_items / PAGE_SIZE)
+
+
 def paginate[T](items: Sequence[T], page: int) -> Page[T]:
     """Page ``page`` (from 1) of 50; a page beyond the end is empty."""
     start = (page - 1) * PAGE_SIZE
@@ -61,7 +66,7 @@ def paginate[T](items: Sequence[T], page: int) -> Page[T]:
         items=list(items[start : start + PAGE_SIZE]),
         page=page,
         total_items=len(items),
-        total_pages=ceil(len(items) / PAGE_SIZE),
+        total_pages=page_count(len(items)),
     )
 
 
