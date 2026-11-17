@@ -14,6 +14,11 @@ error format, so for scenarios marked `prism_format` only the status is checked
 when the target is the mock. Scenarios marked `unsupported` are not sent to the
 mock at all and are reported as SKIP; against the server they run as usual.
 
+The session cookies of `scenarios.json` are placeholders for the mock. Against
+the server pass `--sessions FILE`: a JSON object with the same names (`admin`,
+`manager`) and cookies taken from `POST /sessions`, e.g.
+`{"admin": "spm_session=...", "manager": "spm_session=..."}`.
+
 Exit code is 0 when no scenario fails (skipped ones do not fail), 1 otherwise.
 """
 
@@ -138,8 +143,13 @@ def check(
     return failures
 
 
-def run(base_url: str, target: str, only: set[str]) -> int:
+def run(
+    base_url: str, target: str, only: set[str], sessions_file: Path | None = None
+) -> int:
     spec = json.loads(SCENARIOS_FILE.read_text(encoding="utf-8"))
+    sessions = spec["sessions"]
+    if sessions_file is not None:
+        sessions = json.loads(sessions_file.read_text(encoding="utf-8"))
     rows = []
     for scenario in spec["scenarios"]:
         if only and scenario["id"] not in only:
@@ -155,7 +165,7 @@ def run(base_url: str, target: str, only: set[str]) -> int:
             )
             continue
         try:
-            status, headers, raw = send(base_url, scenario, spec["sessions"])
+            status, headers, raw = send(base_url, scenario, sessions)
             failures = check(scenario, status, headers, raw, target)
             got = str(status)
         except OSError as error:
@@ -205,10 +215,15 @@ def main() -> int:
     parser.add_argument("base_url", nargs="?", default=DEFAULT_BASE_URL)
     parser.add_argument("--target", choices=("mock", "server"), default="mock")
     parser.add_argument("--only", nargs="*", default=[], help="scenario IDs to run")
+    parser.add_argument(
+        "--sessions",
+        type=Path,
+        help="JSON file with session cookies by name (replaces scenarios.json ones)",
+    )
     args = parser.parse_args()
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
-    return run(args.base_url, args.target, set(args.only))
+    return run(args.base_url, args.target, set(args.only), args.sessions)
 
 
 if __name__ == "__main__":
