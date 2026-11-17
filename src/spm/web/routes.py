@@ -17,11 +17,14 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from spm.auth import SESSION_COOKIE, Account, AuthService
 from spm.auth.service import SESSION_LIFETIME
+from spm.clock import to_kyiv
 from spm.services import (
     Actor,
     Conflict,
     Directories,
     NotFound,
+    RunLogEntry,
+    Runs,
     SettingsService,
     ValidationFailed,
 )
@@ -59,6 +62,10 @@ def settings_service(request: Request) -> SettingsService:
     return request.app.state.settings
 
 
+def runs_service(request: Request) -> Runs:
+    return request.app.state.runs
+
+
 def session_account(request: Request) -> Account | None:
     return auth(request).resolve(request.cookies.get(SESSION_COOKIE))
 
@@ -94,6 +101,8 @@ FIELD_LABELS = {
     "material_id": "Матеріал",
     "update_time": "Час щоденного оновлення",
     "notification_threshold": "Поріг сповіщень",
+    "run_id": "Запуск",
+    "supplier_id": "Постачальник",
 }
 
 
@@ -585,3 +594,182 @@ async def update_settings(request: Request) -> Response:
             errors=messages(exc),
         )
     return redirect("/settings")
+
+
+# --- the run log, manual run, new volume (REQ-F-020, REQ-F-021, REQ-F-031, REQ-F-033) ---------
+
+DASH = "—"
+TRIGGER_TEXT = {
+    "scheduled": "за розкладом",
+    "manual": "вручну",
+    "catch_up": "доганяння",
+}
+RUN_STATUS_TEXT = {
+    "success": "успіх",
+    "partial": "частково",
+    "error": "помилка",
+    "interrupted": "перервано",
+    "in_progress": "триває",
+}
+SUPPLIER_STATUS_TEXT = {
+    "success": "успіх",
+    "partial": "частково",
+    "error": "помилка",
+    "not_finished": "не завершено",
+}
+WARNING_TEXT = {
+    "unit_mismatch": "одиниця не збігається",
+    "duplicate_sku": "повторний артикул",
+    "unparsed_row": "рядок не розібрано",
+    "non_positive_price": "нульова або від'ємна ціна",
+}
+ENTRY_TEXT = {
+    "skipped": "пропущено: оновлення вже триває",
+    "no_active_suppliers": "немає активних постачальників",
+    "volume_acceptance": "прийнято новий обсяг",
+}
+
+
+def warning_text(warning: dict) -> str:
+    if warning["sku"] is None:
+        return "рядок без артикула"
+    return f"{WARNING_TEXT[warning['kind']]}: {warning['sku']}"
+
+
+def time_text(moment, started) -> str:
+    """ГГ:ХХ:СС (REQ-NF-030); with the date when it is not the start date."""
+    if moment is None:
+        return DASH
+    local = to_kyiv(moment)
+    if local.date() != to_kyiv(started).date():
+        return local.strftime("%Y-%m-%d %H:%M:%S")
+    return local.strftime("%H:%M:%S")
+
+
+def log_rows(entries: list[RunLogEntry]) -> list[dict]:
+    """One table row per supplier of a run, one row for any other entry."""
+    rows = []
+    for entry in entries:
+        local = to_kyiv(entry.occurred_at)
+        common = {
+            "date": local.date().isoformat(),
+            "start": local.strftime("%H:%M:%S"),
+            "finish": DASH,
+            "trigger": DASH,
+            "by": DASH,
+            "status": DASH,
+            "supplier": DASH,
+            "supplier_status": DASH,
+            "count": DASH,
+            "message": "",
+            "accept": None,
+        }
+        run = entry.run
+        if run is not None:
+            for s in run.supplier_run_statuses:
+                count = s.parsed_items_count
+                texts = [s.error_reason] if s.error_reason else []
+                texts += [warning_text(w) for w in s.warnings]
+                accept = (
+                    {"run_id": run.id, "supplier_id": s.supplier.id}
+                    if s.volume_acceptance_available
+                    else None
+                )
+                rows.append(
+                    common
+                    | {
+                        "finish": time_text(run.finished_at, run.started_at),
+                        "trigger": TRIGGER_TEXT[run.trigger],
+                        "by": run.started_by or DASH,
+                        "status": RUN_STATUS_TEXT[run.status],
+                        "supplier": s.supplier.name,
+                        "supplier_status": SUPPLIER_STATUS_TEXT.get(s.status, DASH),
+                        "count": str(count) if count is not None else DASH,
+                        "message": "; ".join(texts),
+                        "accept": accept,
+                    }
+                )
+        elif entry.volume_acceptance is not None:
+            accepted = entry.volume_acceptance
+            rows.append(
+                common
+                | {
+                    "by": accepted.accepted_by,
+                    "status": ENTRY_TEXT["volume_acceptance"],
+                    "supplier": accepted.supplier.name,
+                    "count": str(accepted.volume_baseline),
+                    "message": f"нова база обсягу: {accepted.volume_baseline}",
+                }
+            )
+        else:
+            trigger = TRIGGER_TEXT[entry.trigger or "scheduled"]
+            rows.append(common | {"trigger": trigger, "status": ENTRY_TEXT[entry.kind]})
+    return rows
+
+
+def run_log_page(request, account, errors: list[str], status: int = 200):
+    page = runs_service(request).list_log(page_number(request))
+    return render(
+        "run_log.html",
+        status,
+        account=account,
+        page=page,
+        rows=log_rows(page.items),
+        errors=errors,
+    )
+
+
+@router.get("/run-log-entries")
+async def run_log_screen(request: Request) -> Response:
+    account = admin_screen(request, action="run_log_read", object_type="run")
+    if not isinstance(account, Account):
+        return account
+    return run_log_page(request, account, [])
+
+
+@router.post("/runs")
+async def manual_run(request: Request) -> Response:
+    account = admin_screen(request, action="manual_run", object_type="run")
+    if not isinstance(account, Account):
+        return account
+    try:
+        runs_service(request).start_manual(actor(account))
+    except ServiceError as exc:  # «оновлення вже триває»
+        return run_log_page(request, account, messages(exc), refused_status(exc))
+    return redirect("/run-log-entries")
+
+
+@router.post("/volume-acceptances")
+async def accept_volume(request: Request) -> Response:
+    account = admin_screen(
+        request, action="volume_accept", object_type="volume_acceptance"
+    )
+    if not isinstance(account, Account):
+        return account
+    form = await form_data(request)
+    service = runs_service(request)
+    who = actor(account)
+    values = {f: int_or_none(form.get(f, "")) for f in ("run_id", "supplier_id")}
+    try:
+        missing = [
+            FieldError(f, "required", REQUIRED) for f, v in values.items() if v is None
+        ]
+        if missing:
+            service.reject_acceptance(who, ValidationFailed.code)
+            raise ValidationFailed(missing)
+        service.accept_volume(who, values["run_id"], values["supplier_id"])
+    except ServiceError as exc:
+        return run_log_page(request, account, messages(exc), refused_status(exc))
+    return redirect("/run-log-entries")
+
+
+# --- the update status of suppliers (REQ-F-034), both roles -----------------------------------
+
+
+@router.get("/supplier-update-statuses")
+async def supplier_update_statuses_screen(request: Request) -> Response:
+    account = session_account(request)
+    if account is None:
+        return redirect("/login")
+    page = runs_service(request).update_statuses(page_number(request))
+    return render("supplier_update_statuses.html", account=account, page=page)

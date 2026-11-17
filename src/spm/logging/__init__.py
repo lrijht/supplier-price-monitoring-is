@@ -7,6 +7,7 @@ from spm.logging.middleware import RequestLogMiddleware
 from spm.logging.writer import (
     JsonLinesLog,
     current_request_id,
+    request_id_scope,
     set_request_account,
 )
 
@@ -14,5 +15,6 @@ __all__ = [
     "JsonLinesLog",
     "RequestLogMiddleware",
     "current_request_id",
+    "request_id_scope",
     "set_request_account",
 ]

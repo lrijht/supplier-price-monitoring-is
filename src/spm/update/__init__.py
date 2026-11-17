@@ -1,4 +1,9 @@
 """Price updates: fetching pages, parsers, runs and the scheduler.
 
-Block B1 has only the parsers; runs and the scheduler come in block B2.
+``UpdateRunner`` implements the port ``RunLauncher`` of ``services``
+(docs/architecture.md, section 5).
 """
+
+from spm.update.runner import UpdateRunner
+
+__all__ = ["UpdateRunner"]

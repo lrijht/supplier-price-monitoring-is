@@ -1,6 +1,8 @@
 """Settings: daily update time and notification threshold (REQ-F-019, REQ-F-043).
 
-The threshold is kept in tenths of a percent, so the step 0.1 is exact.
+The threshold is kept in tenths of a percent, so the step 0.1 is exact. A new
+update time that has already passed today leaves the day without a scheduled
+run and without a catch-up for it (REQ-F-055).
 """
 
 from __future__ import annotations
@@ -9,6 +11,7 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
+from spm.clock import Clock, kyiv_date, scheduled_moment
 from spm.services.actions import ActionRecorder, Actor
 from spm.services.errors import (
     REQUIRED,
@@ -17,7 +20,7 @@ from spm.services.errors import (
     FieldError,
     ValidationFailed,
 )
-from spm.storage import Database, repositories
+from spm.storage import Database, repositories, updates
 
 SETTINGS = "settings"
 UPDATE_TIME = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
@@ -62,9 +65,12 @@ def threshold_tenths(value: Decimal | str) -> int | None:
 
 
 class SettingsService:
-    def __init__(self, database: Database, recorder: ActionRecorder) -> None:
+    def __init__(
+        self, database: Database, recorder: ActionRecorder, clock: Clock
+    ) -> None:
         self._db = database
         self._record = recorder
+        self._clock = clock
 
     def get(self) -> Settings:
         with self._db.transaction() as conn:
@@ -113,6 +119,11 @@ class SettingsService:
                 else current.notification_threshold_tenths,
             )
             repositories.save_settings(conn, new)
+            if new.update_time != current.update_time:
+                now = self._clock.now()
+                today = kyiv_date(now)
+                passed = scheduled_moment(today, new.update_time) <= now
+                updates.set_schedule_waiver(conn, today, passed)
         self._record.success(actor, "settings_update", SETTINGS, None)
         return Settings(new.update_time, new.notification_threshold_tenths)
 

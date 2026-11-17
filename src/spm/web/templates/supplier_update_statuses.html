@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% from "macros.html" import pager %}
+{% block title %}Стан оновлення постачальників{% endblock %}
+{% block content %}
+<h1>Стан оновлення постачальників</h1>
+<table>
+  <thead>
+    <tr><th>Постачальник</th><th>Дата останнього оновлення</th></tr>
+  </thead>
+  <tbody>
+  {% for r in page.items %}
+    <tr>
+      <td>{{ r.supplier.name }}</td>
+      <td>{{ r.last_update_date.isoformat() if r.last_update_date else "ще не оновлювався" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{{ pager(page, "/supplier-update-statuses") }}
+{% endblock %}

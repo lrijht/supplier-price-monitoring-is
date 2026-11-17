@@ -238,8 +238,11 @@ def update_material(
 
 
 def material_has_daily_prices(conn: sqlite3.Connection, material_id: int) -> bool:
-    """Daily prices (Д.5) are written by update runs, block B2; none exist yet."""
-    return False
+    """Daily prices (Д.5) of the material (REQ-F-009)."""
+    row = conn.execute(
+        "SELECT 1 FROM daily_prices WHERE material_id = ? LIMIT 1", (material_id,)
+    ).fetchone()
+    return row is not None
 
 
 # --- supplier items and links (Д.3, Д.4) ---------------------------------------------------
