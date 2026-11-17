@@ -73,6 +73,9 @@ TEMPLATES.filters.update(money=money, signed_money=signed_money, percent=percent
 
 router = APIRouter()
 
+LOGIN_PATH = "/login"
+HOME_PATH = "/"
+
 
 # --- helpers ----------------------------------------------------------------------------------
 
@@ -85,7 +88,7 @@ def redirect(path: str) -> RedirectResponse:
     return RedirectResponse(path, status_code=303)
 
 
-def auth(request: Request) -> AuthService:
+def auth_service(request: Request) -> AuthService:
     return request.app.state.auth
 
 
@@ -101,8 +104,12 @@ def runs_service(request: Request) -> Runs:
     return request.app.state.runs
 
 
+def views_service(request: Request) -> Views:
+    return request.app.state.views
+
+
 def session_account(request: Request) -> Account | None:
-    return auth(request).resolve(request.cookies.get(SESSION_COOKIE))
+    return auth_service(request).resolve(request.cookies.get(SESSION_COOKIE))
 
 
 def actor(account: Account) -> Actor:
@@ -163,7 +170,7 @@ def user_screen(request: Request) -> Account | Response:
     """The account of the session, or the login form without a session."""
     account = session_account(request)
     if account is None:
-        return redirect("/login")
+        return redirect(LOGIN_PATH)
     return account
 
 
@@ -180,7 +187,7 @@ def admin_screen(
     if not isinstance(account, Account):
         return account
     if not account.is_admin:
-        auth(request).deny(
+        auth_service(request).deny(
             account, action=action, object_type=object_type, object_id=object_id
         )
         return render("no_access.html", 403, account=account)
@@ -210,22 +217,22 @@ async def method_not_allowed(request: Request) -> Response:
 # --- login, logout (REQ-F-001, REQ-F-002) --------------------------------------------------------
 
 
-@router.get("/login")
+@router.get(LOGIN_PATH)
 async def login_form(request: Request) -> Response:
     return render("login.html", account=None, errors=[], login="")
 
 
-@router.post("/login")
+@router.post(LOGIN_PATH)
 async def login(request: Request) -> Response:
     form = await form_data(request)
     entered = form.get("login", "")
-    opened = auth(request).login(entered, form.get("password", ""))
+    opened = auth_service(request).login(entered, form.get("password", ""))
     if opened is None:
         return render(
             "login.html", 401, account=None, errors=[WRONG_CREDENTIALS], login=entered
         )
     _, cookie = opened
-    response = redirect("/")
+    response = redirect(HOME_PATH)
     response.set_cookie(
         SESSION_COOKIE, cookie, max_age=SESSION_COOKIE_MAX_AGE, **SESSION_COOKIE_SCOPE
     )
@@ -234,13 +241,13 @@ async def login(request: Request) -> Response:
 
 @router.post("/logout")
 async def logout(request: Request) -> Response:
-    auth(request).logout(request.cookies.get(SESSION_COOKIE))
-    response = redirect("/login")
+    auth_service(request).logout(request.cookies.get(SESSION_COOKIE))
+    response = redirect(LOGIN_PATH)
     response.delete_cookie(SESSION_COOKIE, **SESSION_COOKIE_SCOPE)
     return response
 
 
-@router.get("/")
+@router.get(HOME_PATH)
 async def home(request: Request) -> Response:
     account = user_screen(request)
     if not isinstance(account, Account):
@@ -841,10 +848,6 @@ KIND_TEXT = {
     "appeared": "з'явився",
     "disappeared": "зник",
 }
-
-
-def views_service(request: Request) -> Views:
-    return request.app.state.views
 
 
 def comparison_marks(row) -> list[str]:
