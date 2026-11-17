@@ -547,13 +547,6 @@ def upsert_item(
     return int(row["id"])
 
 
-def item_ids_by_sku(conn: sqlite3.Connection, supplier_id: int) -> dict[str, int]:
-    rows = conn.execute(
-        "SELECT id, sku FROM supplier_items WHERE supplier_id = ?", (supplier_id,)
-    ).fetchall()
-    return {r["sku"]: r["id"] for r in rows}
-
-
 def feed_state(conn: sqlite3.Connection, item_id: int) -> FeedState:
     r = conn.execute(
         "SELECT feed_base, absence_before, absence_date, absence_on_date,"

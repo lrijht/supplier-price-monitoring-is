@@ -41,9 +41,6 @@ MATERIAL = "material"
 SUPPLIER_ITEM = "supplier_item"
 PARSER = "parser"
 
-SUPPLIER_FIELDS = ("name", "catalog_url", "parser", "active")
-MATERIAL_FIELDS = ("name", "unit", "active")
-
 
 @dataclass(frozen=True, slots=True)
 class Supplier:
