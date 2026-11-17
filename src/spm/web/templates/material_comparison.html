@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Порівняння матеріалу{% endblock %}
+{% block content %}
+<h1>Порівняння матеріалу «{{ comparison.material.name }}»</h1>
+{% if not comparison.material.active %}
+<p>матеріал деактивовано</p>
+{% else %}
+<table>
+  <thead>
+    <tr><th>Постачальник</th><th>Ціна, грн</th><th>Дата ціни</th><th>Різниця, %</th><th>Різниця, грн</th><th>Позначки</th></tr>
+  </thead>
+  <tbody>
+  {% for r in comparison.items %}
+    <tr>
+      <td>{{ r.supplier.name }}</td>
+      {% if r.daily_price %}
+      <td>{{ r.daily_price.price | money }}</td>
+      <td>{{ r.daily_price.date.isoformat() }}</td>
+      {% else %}
+      <td>ціни ще немає</td>
+      <td>—</td>
+      {% endif %}
+      <td>{{ r.difference.percent | percent if r.difference else "—" }}</td>
+      <td>{{ r.difference.amount | signed_money if r.difference else "—" }}</td>
+      <td>{{ marks(r) | join(", ") }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

@@ -24,7 +24,7 @@ from spm.auth import AuthService
 from spm.clock import Clock, SystemClock
 from spm.config import Config, load_config
 from spm.logging import JsonLinesLog, RequestLogMiddleware
-from spm.services import ActionRecorder, Directories, Runs, SettingsService
+from spm.services import ActionRecorder, Directories, Runs, SettingsService, Views
 from spm.storage import Database, init_database
 from spm.update import UpdateRunner
 from spm.update.parsers import available_parsers
@@ -75,6 +75,7 @@ def create_app(
     app.state.settings = SettingsService(database, recorder, clock)
     app.state.updates = updates
     app.state.runs = Runs(database, recorder, clock, launcher=updates)
+    app.state.views = Views(database, clock)
 
     api.install_error_handlers(
         app,

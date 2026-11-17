@@ -19,6 +19,8 @@ from spm.auth import SESSION_COOKIE, Account, AuthService
 from spm.auth.service import SESSION_LIFETIME
 from spm.clock import to_kyiv
 from spm.services import (
+    EVENT_KINDS,
+    PERIODS,
     Actor,
     Conflict,
     Directories,
@@ -27,6 +29,7 @@ from spm.services import (
     Runs,
     SettingsService,
     ValidationFailed,
+    Views,
 )
 from spm.services.errors import REQUIRED, FieldError, ServiceError
 
@@ -35,6 +38,29 @@ TEMPLATES = Environment(
     autoescape=select_autoescape(["html"]),
 )
 WRONG_CREDENTIALS = "Неправильний логін або пароль."
+
+
+# --- formats of the screens (REQ-NF-030; sums with a comma, percents with a sign) ------------
+
+
+def money(value) -> str:
+    """1000.5 -> "1000,50"; no value -> "—"."""
+    return f"{value:.2f}".replace(".", ",") if value is not None else "—"
+
+
+def signed_money(value) -> str:
+    return ("+" if value > 0 else "") + money(value)
+
+
+def percent(value) -> str:
+    """10 -> "+10,0 %", -1 -> "-1,0 %", 0 -> "0,0 %"; no value -> "—"."""
+    if value is None:
+        return "—"
+    sign = "+" if value > 0 else ""
+    return f"{sign}{value:.1f}".replace(".", ",") + " %"
+
+
+TEMPLATES.filters.update(money=money, signed_money=signed_money, percent=percent)
 
 router = APIRouter()
 
@@ -773,3 +799,165 @@ async def supplier_update_statuses_screen(request: Request) -> Response:
         return redirect("/login")
     page = runs_service(request).update_statuses(page_number(request))
     return render("supplier_update_statuses.html", account=account, page=page)
+
+
+# --- comparison, history, the feed (REQ-F-035…REQ-F-042, REQ-F-058), both roles ---------------
+
+CHEAPEST = "найдешевша"
+STALE = "застаріла"
+UNIT_MISMATCH = "одиниця не збігається"
+AT_PERIOD_START = "чинна на початок періоду"
+PERIOD_TEXT = {
+    "last_7_days": "7 днів",
+    "last_30_days": "30 днів",
+    "all": "весь період",
+}
+DEFAULT_PERIOD = "all"
+KIND_TEXT = {
+    "price_change": "зміна ціни",
+    "appeared": "з'явився",
+    "disappeared": "зник",
+}
+
+
+def views_service(request: Request) -> Views:
+    return request.app.state.views
+
+
+def comparison_marks(row) -> list[str]:
+    marks = []
+    if row.cheapest:
+        marks.append(CHEAPEST)
+    if row.stale:
+        marks.append(STALE)
+    if row.daily_price is not None and row.daily_price.unit_mismatch:
+        marks.append(UNIT_MISMATCH)
+    return marks
+
+
+def history_marks(row) -> list[str]:
+    marks = []
+    if row.unit_mismatch:
+        marks.append(UNIT_MISMATCH)
+    if row.effective_at_period_start:
+        marks.append(AT_PERIOD_START)
+    return marks
+
+
+def query_suffix(values: dict) -> str:
+    """The filters of a list for the page links: "&name=value…"."""
+    kept = {k: v for k, v in values.items() if v not in (None, "")}
+    return "&" + urlencode(kept) if kept else ""
+
+
+@router.get("/material-comparisons")
+async def comparison_list_screen(request: Request) -> Response:
+    account = session_account(request)
+    if account is None:
+        return redirect("/login")
+    q = request.query_params.get("q", "")
+    page = views_service(request).comparison_list(page_number(request), q)
+    return render(
+        "material_comparisons.html",
+        account=account,
+        page=page,
+        q=q,
+        query=query_suffix({"q": q}),
+    )
+
+
+@router.get("/material-comparisons/{material_id}")
+async def material_comparison_screen(request: Request, material_id: str) -> Response:
+    account = session_account(request)
+    if account is None:
+        return redirect("/login")
+    mid = int_or_none(material_id)
+    try:
+        found = views_service(request).material_comparison(
+            mid if mid is not None else 0
+        )
+    except NotFound:
+        return not_found_page(account)
+    return render(
+        "material_comparison.html",
+        account=account,
+        comparison=found,
+        marks=comparison_marks,
+    )
+
+
+@router.get("/price-history")
+async def price_history_screen(request: Request) -> Response:
+    """Without a material the screen offers the choice; an unknown period is
+    the whole period."""
+    account = session_account(request)
+    if account is None:
+        return redirect("/login")
+    service = views_service(request)
+    query = request.query_params
+    period = query.get("period", "")
+    if period not in PERIODS:
+        period = DEFAULT_PERIOD
+    show_inactive = bool(query.get("show_inactive"))
+    history = None
+    mid = int_or_none(query.get("material_id", ""))
+    if mid is not None:
+        try:
+            history = service.price_history(mid, period)
+        except NotFound:
+            return not_found_page(account)
+        # The chosen deactivated material stays visible in the choice.
+        show_inactive = show_inactive or not history.material.active
+    return render(
+        "price_history.html",
+        account=account,
+        history=history,
+        materials=service.history_materials(show_inactive),
+        period=period,
+        periods=list(PERIOD_TEXT.items()),
+        show_inactive=show_inactive,
+        marks=history_marks,
+    )
+
+
+@router.get("/events")
+async def events_screen(request: Request) -> Response:
+    """Filters with a value that is not an id or a kind are not applied."""
+    account = session_account(request)
+    if account is None:
+        return redirect("/login")
+    service = views_service(request)
+    query = request.query_params
+    kind = query.get("kind", "")
+    filters = {
+        "material_id": int_or_none(query.get("material_id", "")),
+        "supplier_id": int_or_none(query.get("supplier_id", "")),
+        "kind": kind if kind in EVENT_KINDS else None,
+    }
+    page = service.events(page_number(request), **filters)
+    materials, suppliers = service.feed_choices()
+    return render(
+        "events.html",
+        account=account,
+        page=page,
+        filters=filters,
+        materials=materials,
+        suppliers=suppliers,
+        kinds=list(KIND_TEXT.items()),
+        kind_text=KIND_TEXT,
+        query=query_suffix(filters),
+    )
+
+
+# --- items that need attention (REQ-F-017, REQ-F-066, REQ-F-068), administrator -------------
+
+
+@router.get("/attention-items")
+async def attention_items_screen(request: Request) -> Response:
+    account = admin_screen(
+        request, action="attention_items_read", object_type="supplier_item"
+    )
+    if not isinstance(account, Account):
+        return account
+    page = views_service(request).attention_items(page_number(request))
+    return render("attention_items.html", account=account, page=page)

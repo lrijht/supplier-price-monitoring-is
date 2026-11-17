@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from spm.storage import repositories, updates
+from spm.storage import repositories, updates, views
 from spm.storage.database import Database
 from spm.storage.schema import init_database
 from spm.storage.updates import DailyPriceRow, EventRow
@@ -20,6 +20,7 @@ __all__ = [
     "init_database",
     "repositories",
     "updates",
+    "views",
 ]
 
 

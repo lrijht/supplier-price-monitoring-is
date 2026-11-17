@@ -232,15 +232,26 @@ class Directories:
                 values.update({k: v for k, v in changes.items() if k in values})
                 self._check_supplier(conn, values, own_id=supplier_id)
                 name = _text(values["name"])
+                catalog_url = _text(values["catalog_url"])
+                parser = str(values["parser"])
+                active = bool(values["active"])
                 repositories.update_supplier(
                     conn,
                     supplier_id,
                     name=name,
                     name_key=name_key(name),
-                    catalog_url=_text(values["catalog_url"]),
-                    parser=str(values["parser"]),
-                    active=bool(values["active"]),
+                    catalog_url=catalog_url,
+                    parser=parser,
+                    active=active,
                 )
+                # REQ-F-056: activation, a new address or a new parser — the
+                # next run is the first one for this supplier.
+                if (
+                    (active and not row.active)
+                    or catalog_url != row.catalog_url
+                    or parser != row.parser
+                ):
+                    updates.reset_supplier_feed(conn, supplier_id)
                 updated = repositories.get_supplier(conn, supplier_id)
         except NotFound:
             raise
@@ -366,6 +377,8 @@ class Directories:
                     unit=_text(values["unit"]),
                     active=bool(values["active"]),
                 )
+                if values["active"] and not current.active:  # REQ-F-051
+                    updates.rebase_material_feed(conn, material_id)
                 updated = repositories.get_material(conn, material_id)
         except NotFound:
             raise

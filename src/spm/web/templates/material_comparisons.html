@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "macros.html" import pager %}
+{% block title %}Порівняння цін{% endblock %}
+{% block content %}
+<h1>Порівняння цін</h1>
+<form method="get" action="/material-comparisons">
+  <label>Пошук за найменуванням <input type="search" name="q" value="{{ q }}"></label>
+  <button type="submit">Знайти</button>
+</form>
+<table>
+  <thead>
+    <tr><th>Матеріал</th><th>Найдешевший постачальник</th><th>Ціна, грн</th></tr>
+  </thead>
+  <tbody>
+  {% for r in page.items %}
+    <tr>
+      <td><a href="/material-comparisons/{{ r.material.id }}">{{ r.material.name }}</a></td>
+      <td>{{ r.cheapest_supplier.name if r.cheapest_supplier else "—" }}</td>
+      <td>{{ r.price | money }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{{ pager(page, "/material-comparisons", query) }}
+{% endblock %}

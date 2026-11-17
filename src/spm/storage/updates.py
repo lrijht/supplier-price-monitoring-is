@@ -430,6 +430,59 @@ def reset_item_feed(conn: sqlite3.Connection, item_id: int) -> None:
     )
 
 
+def last_price_without_mark(
+    conn: sqlite3.Connection, item_id: int, material_id: int
+) -> Decimal | None:
+    """The last daily price of the item for the material without the mark
+    «одиниця не збігається» (REQ-F-051, REQ-F-056)."""
+    row = conn.execute(
+        "SELECT price FROM daily_prices WHERE supplier_item_id = ?"
+        " AND material_id = ? AND unit_mismatch = 0"
+        " ORDER BY price_date DESC, id DESC LIMIT 1",
+        (item_id, material_id),
+    ).fetchone()
+    return Decimal(row["price"]) if row is not None else None
+
+
+def rebase_item_feed(
+    conn: sqlite3.Connection, item_id: int, material_id: int | None
+) -> None:
+    """The feed base becomes the last price without the mark for the material
+    (none — no base); the absence count and the mark "зник" start again."""
+    base = (
+        last_price_without_mark(conn, item_id, material_id)
+        if material_id is not None
+        else None
+    )
+    conn.execute(
+        "UPDATE supplier_items SET feed_base = ?, absence_before = 0,"
+        " absence_date = NULL, absence_on_date = 0, absence_by_success = 0,"
+        " disappeared = 0 WHERE id = ?",
+        (str(base) if base is not None else None, item_id),
+    )
+
+
+def rebase_material_feed(conn: sqlite3.Connection, material_id: int) -> None:
+    """REQ-F-051: activation of a material, for each of its linked items."""
+    rows = conn.execute(
+        "SELECT id FROM supplier_items WHERE material_id = ?", (material_id,)
+    ).fetchall()
+    for r in rows:
+        rebase_item_feed(conn, r["id"], material_id)
+
+
+def reset_supplier_feed(conn: sqlite3.Connection, supplier_id: int) -> None:
+    """REQ-F-056: activation of a supplier, a new catalogue address or parser —
+    no volume base, and every item of the supplier is rebased."""
+    conn.execute("UPDATE suppliers SET volume_base = NULL WHERE id = ?", (supplier_id,))
+    rows = conn.execute(
+        "SELECT id, material_id FROM supplier_items WHERE supplier_id = ?",
+        (supplier_id,),
+    ).fetchall()
+    for r in rows:
+        rebase_item_feed(conn, r["id"], r["material_id"])
+
+
 @dataclass(slots=True)
 class FeedState:
     """The feed state of an item (Д.3): base, absences, the mark "зник".

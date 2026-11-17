@@ -14,7 +14,7 @@
   <tbody>
   {% for item in page.items %}
     <tr>
-      <td>{{ item.supplier.name }}</td>
+      <td>{{ item.supplier.name }}{% if not item.supplier.active %} (постачальник неактивний){% endif %}</td>
       <td>{{ item.sku }}</td>
       <td>{{ item.name }}</td>
       <td>{{ item.unit }}</td>

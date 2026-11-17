@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% from "macros.html" import pager %}
+{% block title %}Стрічка змін{% endblock %}
+{% block content %}
+<h1>Стрічка змін</h1>
+<form method="get" action="/events">
+  <label>Матеріал
+    <select name="material_id">
+      <option value="">усі</option>
+      {% for m in materials %}
+      <option value="{{ m.id }}"{% if m.id == filters.material_id %} selected{% endif %}>{{ m.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Постачальник
+    <select name="supplier_id">
+      <option value="">усі</option>
+      {% for s in suppliers %}
+      <option value="{{ s.id }}"{% if s.id == filters.supplier_id %} selected{% endif %}>{{ s.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Вид
+    <select name="kind">
+      <option value="">усі</option>
+      {% for value, text in kinds %}
+      <option value="{{ value }}"{% if value == filters.kind %} selected{% endif %}>{{ text }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit">Показати</button>
+</form>
+<table>
+  <thead>
+    <tr><th>Дата</th><th>Вид</th><th>Матеріал</th><th>Постачальник</th><th>Стара ціна, грн</th><th>Нова ціна, грн</th><th>Зміна, %</th><th>Ціна, грн</th></tr>
+  </thead>
+  <tbody>
+  {% for e in page.items %}
+    <tr>
+      <td>{{ e.date.isoformat() }}</td>
+      <td>{{ kind_text[e.kind] }}</td>
+      <td>{{ e.material.name }}</td>
+      <td>{{ e.supplier.name }}</td>
+      <td>{{ e.old_price | money }}</td>
+      <td>{{ e.new_price | money }}</td>
+      <td>{{ e.change_percent | percent }}</td>
+      <td>{{ e.price | money }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{{ pager(page, "/events", query) }}
+{% endblock %}
