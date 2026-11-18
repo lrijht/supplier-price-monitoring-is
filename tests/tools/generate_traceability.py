@@ -4,9 +4,15 @@ Standard library only. Columns taken from the SRS: source, acceptance criterion,
 BDD (the "**Вимоги:**" line of each scenario in appendix A) and UC (the
 "Вимоги" row of each use case table in section 3.7). The API column lists the
 operationIds of spec/openapi.yaml whose x-req-ids contain the requirement, in
-contract order. The columns "Тікет", "Тест", "Код" and "Документація" are
-filled during implementation, so they are carried over from the current matrix
-by requirement ID.
+contract order. The column "Тікет" is carried over from the current matrix by
+requirement ID.
+
+The columns "Тест", "Код" and "Документація" list the files that cite the
+requirement ID: pytest modules (tests/**/test_*.py) and the contract scenarios
+(tests/contract/scenarios.json); system code (src/spm, including templates) and
+the simulator; the design and API documents in DOC_FILES. CODE_EXTRA adds the
+modules that implement a requirement without citing its ID (found by review),
+NOTES fills the cells of requirements that are checked otherwise.
 
 Usage:
     python tests/tools/generate_traceability.py          # rewrite the matrix
@@ -25,14 +31,54 @@ OPENAPI_PATH = ROOT / "spec" / "openapi.yaml"
 MATRIX_PATH = ROOT / "spec" / "traceability.md"
 
 DASH = "—"
-CARRIED_COLUMNS = 4  # Тікет, Тест, Код, Документація
+CARRIED_COLUMNS = 4  # Тікет, Тест, Код, Документація (only Тікет is kept)
+
+DOC_FILES = ("docs/architecture.md", "docs/api/resources.md", "docs/api/scenarios.md")
+# The test of this generator cites IDs as sample data, not as requirements.
+SKIP_TESTS = ("test_traceability.py",)
+
+# Modules that implement a requirement but do not cite its ID (verification
+# 2026-11-18, logs/2026-11-18-verification.md).
+CODE_EXTRA = {
+    "REQ-F-004": ["spm/api/requests.py", "spm/auth/service.py", "spm/web/routes.py"],
+    "REQ-F-013": ["spm/services/directories.py", "spm/storage/schema.py"],
+    "REQ-F-025": [
+        "spm/update/runner.py",
+        "spm/update/fetch.py",
+        "spm/update/parsers.py",
+    ],
+    "REQ-F-027": ["spm/update/parsers.py", "spm/storage/updates.py"],
+    "REQ-F-053": ["spm/update/runner.py", "spm/storage/updates.py"],
+    "REQ-F-071": ["spm/api/routes.py"],
+    "REQ-NF-003": ["spm/web/routes.py", "spm/web/templates/base.html"],
+    "REQ-NF-011": ["pyproject.toml"],
+    "REQ-NF-019": ["spm/storage/updates.py", "spm/services/runs.py"],
+    "REQ-NF-025": ["pyproject.toml"],
+}
+
+# Cells of requirements without an automatic test or without code: (Тест, Код).
+NOTES = {
+    "REQ-NF-002": (
+        "ручна перевірка в Chrome і Firefox (T-48), протоколу ще немає",
+        None,
+    ),
+    "REQ-NF-008": ("немає — тест і протокол швидкодії T-45 не виконано", None),
+    "REQ-NF-009": ("немає — тест швидкодії T-45 не виконано", None),
+    "REQ-NF-010": ("не приймається (ціль проєктування)", "не приймається"),
+    "REQ-NF-012": ("історія git (правило розробки)", "історія git"),
+    "REQ-NF-023": ("історія git (правило розробки)", "історія git"),
+}
 
 INTRO = """# Матриця трасування вимог
 
 Матриця зв'язує кожну вимогу `spec/srs.md` з її джерелом, критерієм прийняття, сценаріями BDD
 (додаток А SRS) і сценаріями використання UC (SRS, п. 3.7). Джерело — це рішення SKED-діалогу
-(стислий перелік — додаток В SRS), розділ задуму або правила проєкту. Колонки «Тікет», «Тест»,
-«Код» і «Документація» заповнюються під час реалізації.
+(стислий перелік — додаток В SRS), розділ задуму або правила проєкту. Колонку «Тікет» ведуть
+вручну за `docs/tickets.md`.
+Колонки «Тест», «Код» і «Документація» згенеровано за ID вимог у файлах репозиторію: модулі pytest
+і сценарії контракту в `tests/`, код у `src/spm` та імітатор, документи `docs/architecture.md`,
+`docs/api/resources.md` і `docs/api/scenarios.md`. Модулі, що реалізують вимогу без її ID, і
+вимоги, які перевіряються інакше, внесено за звітом верифікації (`logs/2026-11-18-verification.md`).
 
 Таблицю згенеровано з `spec/srs.md`. Критерії подано в один рядок; повне формулювання —
 у SRS, і за розбіжності чинним є SRS. Вимоги впорядковано за ID.
@@ -186,7 +232,64 @@ def join_or_dash(items: list[str], code: bool = False) -> str:
     return ", ".join(f"`{x}`" if code else x for x in items)
 
 
-def generate(srs_text: str, openapi_text: str, matrix_text: str) -> str:
+REQ_ID = re.compile(r"REQ-(?:F|NF)-\d{3}")
+
+
+def cite_map(files: dict[str, str]) -> dict[str, list[str]]:
+    """Map requirement ID to the names of the files whose text cites it."""
+    links: dict[str, set[str]] = {}
+    for name, text in files.items():
+        for req_id in REQ_ID.findall(text):
+            links.setdefault(req_id, set()).add(name)
+    return {k: sorted(v) for k, v in links.items()}
+
+
+def _texts(base: Path, patterns: tuple[str, ...], strip: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for pattern in patterns:
+        for path in base.glob(pattern):
+            if "__pycache__" in path.parts or not path.is_file():
+                continue
+            if path.name in SKIP_TESTS:
+                continue
+            out[path.relative_to(strip).as_posix()] = read(path)
+    return out
+
+
+def scan_repository(root: Path = ROOT) -> dict[str, dict[str, list[str]]]:
+    """Return the "Тест", "Код" and "Документація" links found in the repository."""
+    tests = _texts(
+        root / "tests", ("**/test_*.py", "contract/scenarios.json"), root / "tests"
+    )
+    code = _texts(root / "src", ("spm/**/*.py", "spm/**/*.html"), root / "src")
+    code |= _texts(root, ("simulator/**/*.py",), root)
+    docs = {name: read(root / name) for name in DOC_FILES if (root / name).is_file()}
+    return {"test": cite_map(tests), "code": cite_map(code), "doc": cite_map(docs)}
+
+
+def implementation_cells(
+    req_id: str, links: dict[str, dict[str, list[str]]]
+) -> list[str]:
+    """Return the cells "Тест", "Код" and "Документація" of one requirement."""
+    note_test, note_code = NOTES.get(req_id, (None, None))
+    tests = links["test"].get(req_id, [])
+    code = sorted(set(links["code"].get(req_id, [])) | set(CODE_EXTRA.get(req_id, [])))
+    docs = links["doc"].get(req_id, [])
+    return [
+        join_or_dash(tests, code=True) if tests or not note_test else note_test,
+        join_or_dash(code, code=True) if code or not note_code else note_code,
+        join_or_dash(docs, code=True),
+    ]
+
+
+def generate(
+    srs_text: str,
+    openapi_text: str,
+    matrix_text: str,
+    links: dict[str, dict[str, list[str]]] | None = None,
+) -> str:
+    if links is None:
+        links = scan_repository()
     lines = srs_text.splitlines()
     reqs = parse_requirements(lines)
     bdd = parse_bdd(lines)
@@ -200,7 +303,8 @@ def generate(srs_text: str, openapi_text: str, matrix_text: str) -> str:
         ids = sorted((r for r in reqs if r.startswith(f"REQ-{kind}-")), key=id_key)
         for req_id in ids:
             req = reqs[req_id]
-            rest = carried.get(req_id, [""] * CARRIED_COLUMNS)
+            ticket = carried.get(req_id, [""] * CARRIED_COLUMNS)[0]
+            rest = [ticket, *implementation_cells(req_id, links)]
             cells = [
                 req_id,
                 req["source"],
