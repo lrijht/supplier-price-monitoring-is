@@ -29,7 +29,10 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "."]
-addopts = "-ra"
+addopts = "-ra -m 'not performance'"
+markers = [
+    "performance: performance tests of REQ-NF-008 and REQ-NF-009 (T-45); run with -m performance",
+]
 
 [tool.ruff]
 target-version = "py312"
