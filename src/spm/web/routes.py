@@ -75,6 +75,7 @@ router = APIRouter()
 
 LOGIN_PATH = "/login"
 HOME_PATH = "/"
+COMPARISON_EXPORT_PATH = "/exports/material-comparisons"  # REQ-F-072
 
 
 # --- helpers ----------------------------------------------------------------------------------
@@ -893,9 +894,6 @@ def with_filters(path: str, values: dict) -> str:
     return path + "?" + urlencode(kept) if kept else path
 
 
-EXPORT_PATH = "/exports/material-comparisons"
-
-
 @router.get("/material-comparisons")
 async def comparison_list_screen(request: Request) -> Response:
     account = user_screen(request)
@@ -909,22 +907,22 @@ async def comparison_list_screen(request: Request) -> Response:
         page=page,
         q=q,
         query=query_suffix({"q": q}),
-        export_url=with_filters(EXPORT_PATH, {"q": q}),
+        export_url=with_filters(COMPARISON_EXPORT_PATH, {"q": q}),
     )
 
 
-@router.get(EXPORT_PATH)
-async def comparison_list_export(request: Request) -> Response:
+@router.get(COMPARISON_EXPORT_PATH)
+async def comparison_list_csv(request: Request) -> Response:
     """REQ-F-072, UC-02 1в: the link «Завантажити CSV» of the comparison list."""
     account = user_screen(request)
     if not isinstance(account, Account):
         return account
     q = request.query_params.get("q", "")
-    found = views_service(request).export_comparison_list(q)
+    csv_file = views_service(request).export_comparison_list(q)
     return Response(
-        found.content,
-        media_type=found.media_type,
-        headers={"Content-Disposition": f'attachment; filename="{found.name}"'},
+        csv_file.content,
+        media_type=csv_file.media_type,
+        headers={"Content-Disposition": f'attachment; filename="{csv_file.name}"'},
     )
 
 

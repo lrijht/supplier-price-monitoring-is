@@ -643,7 +643,7 @@ async def delete_supplier_item_link(
     return Response(status_code=204)
 
 
-# --- 18–21 comparison, history, the feed ---------------------------------------------------------
+# --- 18–21, 29 comparison and its export, history, the feed --------------------------------------
 
 
 @router.get("/material-comparisons")
@@ -660,11 +660,11 @@ async def export_material_comparisons(request: Request) -> Response:
     """Operation 29: the comparison list as a CSV file (REQ-F-072)."""
     authenticate(request)
     q = request.query_params.get("q")
-    found = views_service(request).export_comparison_list(q)
+    csv_file = views_service(request).export_comparison_list(q)
     return Response(
-        found.content,
-        media_type=found.media_type,
-        headers={"Content-Disposition": f'attachment; filename="{found.name}"'},
+        csv_file.content,
+        media_type=csv_file.media_type,
+        headers={"Content-Disposition": f'attachment; filename="{csv_file.name}"'},
     )
 
 
