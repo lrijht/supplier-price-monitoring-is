@@ -882,6 +882,9 @@ def query_suffix(values: dict) -> str:
     return "&" + urlencode(kept) if kept else ""
 
 
+EXPORT_PATH = "/exports/material-comparisons"
+
+
 @router.get("/material-comparisons")
 async def comparison_list_screen(request: Request) -> Response:
     account = user_screen(request)
@@ -895,6 +898,22 @@ async def comparison_list_screen(request: Request) -> Response:
         page=page,
         q=q,
         query=query_suffix({"q": q}),
+        export_url=EXPORT_PATH + ("?" + urlencode({"q": q}) if q else ""),
+    )
+
+
+@router.get(EXPORT_PATH)
+async def comparison_list_export(request: Request) -> Response:
+    """REQ-F-072, UC-02 1в: the link «Завантажити CSV» of the comparison list."""
+    account = user_screen(request)
+    if not isinstance(account, Account):
+        return account
+    q = request.query_params.get("q", "")
+    found = views_service(request).export_comparison_list(q)
+    return Response(
+        found.content,
+        media_type=found.media_type,
+        headers={"Content-Disposition": f'attachment; filename="{found.name}"'},
     )
 
 
