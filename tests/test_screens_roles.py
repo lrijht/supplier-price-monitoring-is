@@ -23,9 +23,12 @@ from helpers_b3 import (
     D,
     Market,
     hrefs,
+    nav_links,
     path_of,
     post_forms,
     screen,
+    screen_content,
+    shows,
 )
 
 # REQ-NF-021: sessions stay open while the tests move the clock by days.
@@ -96,9 +99,14 @@ def test_manager_opens_5_screens(market, manager_client, path):
 
 
 # REQ-NF-003 criterion, REQ-F-005, BDD-030: every other screen answers the manager
-# "немає доступу" (403) — not its content and not "не знайдено".
+# "немає доступу" (403) — not its content and not "не знайдено". The content is
+# what the administrator sees on the same address (cells, field values: run log
+# dates and statuses, supplier names, settings), so a page with the message and
+# the screen's data would fail.
 @pytest.mark.parametrize("path", ADMIN_ONLY_SCREENS)
-def test_manager_other_screens_no_access(market, manager_client, path):
+def test_manager_other_screens_no_access(market, admin_client, manager_client, path):
+    content = screen_content(screen(admin_client, path))
+    assert content, f"the administrator's {path} shows no data to compare with"
     resp = manager_client.get(path)
     assert resp.status_code == 403
     text = page_text(resp.text)
@@ -106,6 +114,7 @@ def test_manager_other_screens_no_access(market, manager_client, path):
     assert "не знайдено" not in text.lower()
     for secret in ("А-1", "Б-9", "http://127.0.0.1"):
         assert secret not in text
+    assert not [value for value in content if shows(text, value)]
 
 
 # REQ-F-001, BDD-029: without a session each screen of block B3 leads to the login
@@ -140,6 +149,10 @@ def test_manager_navigation(market, manager_client, path):
     }
     assert set(NAV_MANAGER) <= links
     assert not links & set(ADMIN_ONLY_SCREENS)
+    # REQ-NF-003 "рівно 5": the menu has the manager's 4 screens without a
+    # record id and nothing else.
+    html = screen(manager_client, path.format(material=market.mid("М1")))
+    assert nav_links(html) == set(NAV_MANAGER)
 
 
 # REQ-NF-003, REQ-F-004: every screen of the administrator links to all 10 screens
@@ -151,6 +164,10 @@ def test_admin_navigation(market, admin_client, path):
         for h in hrefs(screen(admin_client, path.format(material=market.mid("М1"))))
     }
     assert set(NAV_MANAGER) | set(ADMIN_ONLY_SCREENS) <= links
+    # REQ-NF-003 "рівно 11": the menu has the 10 screens without a record id and
+    # nothing else, so a 12th screen in the menu fails.
+    html = screen(admin_client, path.format(material=market.mid("М1")))
+    assert nav_links(html) == set(NAV_MANAGER) | set(ADMIN_ONLY_SCREENS)
 
 
 # REQ-F-003 criterion: the manager's screens have no element to change data or

@@ -126,10 +126,17 @@ def test_view_requests_recorded_without_query(
 
 
 # REQ-NF-032 criterion: no screen of REQ-NF-003 and no operation returns action
-# log records — no request id of the log is in the answers of block B3.
+# log records — no request id of the log is in the answers: all 11 screens and
+# every reading operation of the contract (the CSV export included), after
+# changes, a run and a refused manager request have written records.
 def test_views_do_not_return_action_log(admin_client, manager_client, config, read_log):
+    from helpers_b2 import start_manual, wait_run
+
     mid = create_material(admin_client, "М1")["id"]
+    sid = create_supplier(admin_client, "Альфа")["id"]
     admin_client.patch(f"{API}/settings", json={"notification_threshold": 2})
+    run_id = wait_run(admin_client, start_manual(admin_client)["id"])["id"]
+    assert manager_client.patch(f"{API}/settings", json={}).status_code == 403
     urls = [
         f"{API}/material-comparisons",
         f"{API}/material-comparisons/{mid}",
@@ -141,8 +148,32 @@ def test_views_do_not_return_action_log(admin_client, manager_client, config, re
         f"/price-history?material_id={mid}&period=all",
         "/events",
         "/attention-items",
+        # the other screens of REQ-NF-003
+        "/supplier-update-statuses",
+        "/suppliers",
+        "/materials",
+        "/unlinked-items",
+        "/run-log-entries",
+        "/settings",
+        # the other reading operations of spec/openapi.yaml
+        f"{API}/sessions/current",
+        f"{API}/suppliers",
+        f"{API}/suppliers/{sid}",
+        f"{API}/parsers",
+        f"{API}/materials",
+        f"{API}/materials/{mid}",
+        f"{API}/materials/{mid}/links",
+        f"{API}/unlinked-items",
+        f"{API}/exports/material-comparisons",
+        f"{API}/supplier-update-statuses",
+        f"{API}/settings",
+        f"{API}/runs/{run_id}",
+        f"{API}/run-log-entries",
     ]
     answers = [admin_client.get(u) for u in urls] + [manager_client.get(urls[0])]
+    assert all(resp.status_code == 200 for resp in answers), [
+        (u, r.status_code) for u, r in zip(urls, answers, strict=False)
+    ]
     # Ids long enough not to match by chance (a uuid or a long token).
     records = read_log(config.action_log_path)
     assert records
