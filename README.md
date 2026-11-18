@@ -6,6 +6,11 @@ using spec-driven development with a coding agent.
 
 The system concept and requirements live in `/spec`; that directory is the single source of truth.
 
+## Running
+
+Installation, configuration, accounts, the supplier simulator, the start command, tests and the
+contract run: [docs/run.md](docs/run.md) (in Ukrainian).
+
 ## Data refresh
 
 The source of prices is the suppliers' price lists.
