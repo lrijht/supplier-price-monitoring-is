@@ -147,13 +147,14 @@
 
 П-38 і П-39 очікують успішну відповідь `text/csv` із заголовком `Content-Disposition` (поле
 `content_type` у `expect` файлу `scenarios.json`). Скрипт `tests/contract/run_mock_scenarios.py`
-поки що для кожного 2xx очікує `application/json`, поле `content_type` не читає і надсилає
-`Accept: application/json, application/problem+json`, тому до доробки скрипта в тікеті T-60
-П-38 і П-39 не проходять ні проти mock, ні проти сервера. Prism 5.16.0 на такий `Accept` відповідає
-406, а з `Accept: text/csv` віддає приклад контракту з BOM і `Content-Disposition`
-(перевірено 2026-11-17). Н-46 і Н-47 від цієї доробки не
-залежать. Прогін проти сервера (`tests/contract/server_run.py`) розподіляє сценарії за етапами з
-переліком ID; етапів для П-38, П-39, Н-46 і Н-47 у ньому ще немає — їх теж додає T-60.
+(доробка T-60) для такого сценарію надсилає `Accept` з цим типом, перевіряє `Content-Type` і
+заголовки, а полів JSON у тілі файлу не перевіряє; для решти 2xx, як і раніше, очікує
+`application/json`. Prism 5.16.0 з `Accept: text/csv` віддає приклад контракту з BOM і
+`Content-Disposition`. Прогін проти сервера (`tests/contract/server_run.py`) виконує П-38, П-39 і
+Н-46 на етапі `export`, а Н-47 — на етапі `database-locked`.
+
+Результат: проти mock — 85 з 86 сценаріїв, П-38, П-39, Н-46 і Н-47 проходять, пропущено лише Н-27
+(`logs/2026-11-17-a06-tests.md`); проти сервера — 86 з 86 (`logs/2026-11-18-a06-feature.md`).
 
 ## Відомі обмеження mock
 
