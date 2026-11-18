@@ -54,6 +54,13 @@ def material_screen_row(client, material_id: int, supplier: str) -> str:
     return row_text(found)
 
 
+def material_screen_cells(client, material_id: int, supplier: str) -> dict[str, str]:
+    """The supplier's row on the material comparison screen, cell by header."""
+    headers, rows = data_table(screen(client, f"/material-comparisons/{material_id}"))
+    (found,) = [r for r in rows if supplier in row_text(r)]
+    return dict(zip(headers, found, strict=False))
+
+
 def list_screen_row(client, material: str, query: str = "") -> str:
     _, rows = data_table(screen(client, f"/material-comparisons{query}"))
     (found,) = [r for r in rows if material in r[0]]
@@ -259,6 +266,15 @@ def test_stale_boundary(world, manager_client, alfa_day, stale):
     assert (STALE in alfa) is stale
     assert (CHEAPEST in alfa) is not stale
     assert f"2026-10-0{alfa_day}" in alfa
+    # REQ-F-036 criterion 3 on the screen, while Бета's price is suitable: the
+    # stale row shows "—" in both difference columns; a fresh cheapest — 0,0 %.
+    cells = material_screen_cells(manager_client, m.mid("М1"), "Альфа")
+    differences = (cells["Різниця, %"], cells["Різниця, грн"])
+    if stale:
+        assert differences == (DASH, DASH)
+    else:
+        assert compact(differences[0]) == "0,0%"
+        assert DASH not in differences
 
 
 # REQ-F-039 criterion 2, REQ-F-038: the price from 2026-10-08 at 23:59 on

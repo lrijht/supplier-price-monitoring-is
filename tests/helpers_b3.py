@@ -12,7 +12,7 @@ import re
 from datetime import date
 from decimal import Decimal
 
-from helpers import API, all_pages, data_table, forms, normalize, page_text
+from helpers import API, all_pages, data_table, forms, normalize, page_text, parse_page
 from helpers_b2 import item
 
 # Screen texts of block B3 (REQ-F-036, REQ-F-038, REQ-F-040, REQ-F-049,
@@ -290,3 +290,28 @@ def lower_headers(html: str) -> list[str]:
 
 def text_of(client, path: str) -> str:
     return page_text(screen(client, path))
+
+
+# --- what a screen shows (REQ-F-005, REQ-NF-003) ---------------------------------------
+
+
+def screen_content(html: str) -> set[str]:
+    """What a screen shows of its data: the cells of its tables (not the headers)
+    and the values of its visible form fields."""
+    page = parse_page(html)
+    found = {cell for table in page.tables for r in table["rows"] for cell in r}
+    for form in page.forms:
+        for field in form["inputs"]:
+            if field.get("type", "text") not in ("hidden", "submit", "button"):
+                found.add(normalize(field.get("value", "")))
+    return {c for c in found if c and c != "—"}
+
+
+def shows(text: str, value: str) -> bool:
+    return re.search(rf"(?<!\w){re.escape(value)}(?!\w)", text) is not None
+
+
+def nav_links(html: str) -> set[str]:
+    """Addresses of the links of the page's navigation menu (``<nav>``)."""
+    (nav,) = re.findall(r"<nav[^>]*>.*?</nav>", html, flags=re.S)
+    return {path_of(h) for h in hrefs(nav)}

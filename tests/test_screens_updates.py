@@ -28,6 +28,7 @@ from helpers_b2 import (
     wait_run,
     wait_until,
 )
+from helpers_b3 import screen_content, shows
 
 # REQ-NF-021: sessions stay open while the tests move the clock by days.
 pytestmark = pytest.mark.usefixtures("keep_sessions")
@@ -170,11 +171,25 @@ def test_log_screen_has_no_delete(world):
     assert "видалити" not in text and "вилучити" not in text
 
 
-# REQ-F-005, REQ-NF-003: the manager sees "немає доступу" on the run log (403).
-def test_manager_no_access_to_log(manager_client):
+# REQ-F-005 criterion, REQ-NF-003: the manager sees "немає доступу" on the run log
+# (403) — not the content of the log and not "не знайдено". The log has runs of
+# Альфа and Бета; nothing the administrator sees in it (dates, times, statuses,
+# supplier names, counts) is on the manager's page.
+def test_manager_no_access_to_log(world, manager_client):
+    world.supplier("Альфа", "alfa", [item("А-1")])
+    world.supplier("Бета", "beta", [item("Б-1")])
+    world.run()
+    world.run("manual")
+    admin_html = world.admin.get("/run-log-entries").text
+    content = screen_content(admin_html)
+    assert {"Альфа", "Бета"} <= content
     resp = manager_client.get("/run-log-entries")
     assert resp.status_code == 403
-    assert NO_ACCESS in page_text(resp.text)
+    text = page_text(resp.text)
+    assert NO_ACCESS in text
+    assert "не знайдено" not in text.lower()
+    assert not [value for value in content if shows(text, value)]
+    assert not [word for word in STATUS_WORDS if word in text]
 
 
 # --- the manual run button ------------------------------------------------------------------------
