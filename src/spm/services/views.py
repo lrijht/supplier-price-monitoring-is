@@ -9,12 +9,14 @@ clock. The web interface and the API call the same functions (REQ-NF-031).
 
 from __future__ import annotations
 
+import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from spm.clock import Clock, kyiv_date
+from spm.services import exports
 from spm.services.directories import normalize_unit
 from spm.services.errors import NotFound
 from spm.services.ordering import Page, matches, paginate, sort_by
@@ -189,6 +191,35 @@ def _cheapest(rows: list[ComparisonRow]) -> ComparisonRow | None:
     return [r for r in best if r.daily_price.date == latest][0]  # sorted by name
 
 
+def _listed_materials(conn: sqlite3.Connection, q: str | None) -> list[MaterialRow]:
+    """The materials of the comparison list: active ones matching the search,
+    by name (REQ-F-035, REQ-F-049, REQ-F-057, REQ-F-059)."""
+    materials = repositories.all_materials(conn)
+    return sort_by(
+        [m for m in materials if m.active and matches(q, m.name)], lambda m: m.name
+    )
+
+
+def _comparison_list_rows(
+    conn: sqlite3.Connection, materials: list[MaterialRow], today: date
+) -> list[ComparisonListRow]:
+    """A row per material with its cheapest supplier and price (REQ-F-035)."""
+    by_material: dict[int, list[views.LinkedPriceRow]] = defaultdict(list)
+    for p in views.linked_prices(conn, [m.id for m in materials]):
+        by_material[p.material_id].append(p)
+    rows = []
+    for m in materials:
+        best = _cheapest(_comparison_rows(by_material[m.id], today))
+        rows.append(
+            ComparisonListRow(
+                MaterialRef(m.id, m.name, m.active),
+                best.supplier if best else None,
+                best.daily_price.price if best else None,
+            )
+        )
+    return rows
+
+
 def _changes(prices: list[views.HistoryPriceRow]) -> list[views.HistoryPriceRow]:
     """REQ-F-040: the first price and each next one that differs from the
     previous (the mark «одиниця не збігається» counts)."""
@@ -216,29 +247,19 @@ class Views:
         self, page: int = 1, q: str | None = None
     ) -> Page[ComparisonListRow]:
         """Active materials by name with the cheapest supplier and price."""
-        with self._db.transaction() as conn:
-            materials = [
-                m
-                for m in repositories.all_materials(conn)
-                if m.active and matches(q, m.name)
-            ]
-            result = paginate(sort_by(materials, lambda m: m.name), page)
-            prices = views.linked_prices(conn, [m.id for m in result.items])
-        by_material: dict[int, list[views.LinkedPriceRow]] = defaultdict(list)
-        for p in prices:
-            by_material[p.material_id].append(p)
         today = self.today()
-        rows = []
-        for m in result.items:
-            best = _cheapest(_comparison_rows(by_material[m.id], today))
-            rows.append(
-                ComparisonListRow(
-                    MaterialRef(m.id, m.name, m.active),
-                    best.supplier if best else None,
-                    best.daily_price.price if best else None,
-                )
-            )
+        with self._db.transaction() as conn:
+            result = paginate(_listed_materials(conn, q), page)
+            rows = _comparison_list_rows(conn, result.items, today)
         return Page(rows, result.page, result.total_items, result.total_pages)
+
+    def export_comparison_list(self, q: str | None = None) -> exports.ExportFile:
+        """REQ-F-072: the rows of ``comparison_list``, every page at once, as a
+        CSV file named by today's Kyiv date."""
+        today = self.today()
+        with self._db.transaction() as conn:
+            rows = _comparison_list_rows(conn, _listed_materials(conn, q), today)
+        return exports.comparison_file(rows, today)
 
     def material_comparison(self, material_id: int) -> MaterialComparison:
         with self._db.transaction() as conn:
